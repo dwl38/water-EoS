@@ -141,12 +141,16 @@ class ParameterizableFunc(ABC):
     
     @abstractmethod
     def get_params(self) -> dict[str, Any]:
-        """Returns the internal representation parameters as a dict."""
+        """Returns the internal representation parameters as a dict, such that
+        the full state of the function can be restored using the
+        `load_params(...)` method."""
         ...
 
     @abstractmethod
     def load_params(self, p: dict[str, Any]) -> None:
-        """Loads the internal representation parameters from a dict."""
+        """Loads the internal representation parameters from a dict, such that
+        the full state of the function can be restored from the dict returned
+        by the `get_params()` method."""
         ...
 
     @abstractmethod
@@ -154,7 +158,6 @@ class ParameterizableFunc(ABC):
             self,
             x: np.ndarray[tuple[int], np.dtype[float]],
             y: np.ndarray[tuple[int], np.dtype[float]],
-            data: np.ndarray[tuple[int], np.dtype[float]],
             data_tags: np.ndarray[tuple[int], np.dtype[str]],
         ) -> np.ndarray[tuple[int, int], np.dtype[float]]:
         """Internal method required for `fit(...)`. Returns the fitting matrix
@@ -168,17 +171,24 @@ class ParameterizableFunc(ABC):
             x-coordinates of the input data; guaranteed 1D ndarray.
         y : ndarray of floats of shape (N_data,)
             y-coordinates of the input data; guaranteed 1D ndarray.
-        data : ndarray of floats of shape (N_data,)
-            Target data `t` to fit to; guaranteed 1D ndarray.
         data_tags : ndarray of str of shape (N_data,)
-            String tags denoting which type of data was provided in `data`;
-            guaranteed to be supplied as a 1D ndarray. Each tag will be one of
-            "f", "dfdx", "dfdy", "ddfdxx", "ddfdxy", or "ddfdyy".
+            String tags denoting which type of data is provided in the target
+            data vector `t`; guaranteed to be supplied as a 1D ndarray. Each
+            tag will be one of "f", "dfdx", "dfdy", "ddfdxx", "ddfdxy", or
+            "ddfdyy".
 
         Returns
         -------
         A_mat : ndarray of floats of shape (N_data, N_params)
             Fitting matrix `A` required to fit this model to the given data.
+
+        Notes
+        -----
+        It is useful to perform any data-dependent reconfiguration of the
+        function's internal parameters within this method, if necessary, as
+        `_get_fitting_matrix(...)` is called exactly once at the start of the
+        `fit(...)` method, and before both `_get_regularization_matrix()` and
+        `_set_fitted_params(...)`.
         """
         ...
 
@@ -186,14 +196,14 @@ class ParameterizableFunc(ABC):
             self,
         ) -> np.ndarray[tuple[int, int], np.dtype[float]] | None:
         """Optional internal method used by `fit(...)` if available. Returns
-        the regularization matrix `A` involved in the least-squares problem
-        `A @ p = 0`, where `p` is the vector of internal representation
+        the regularization matrix `R` involved in the least-squares problem
+        `R @ p = 0`, where `p` is the vector of internal representation
         parameters.
 
         Returns
         -------
         reg_mat : ndarray of floats of shape (N_reg, N_params)
-            Regularization matrix `A` used to regularize this model. Will be
+            Regularization matrix `R` used to regularize this model. Will be
             ignored if None.
         """
         return None
@@ -239,7 +249,11 @@ class ParameterizableFunc(ABC):
         data : array_like of floats of shape (N_data,)
             Known values at the given data points to be fitted to.
         data_err : array_like of floats of shape (N_data,)
-            Uncertainties of the given data points, assumed independent.
+            Uncertainties of the given data points; assumed to be independent,
+            and numerically equal to the standard deviation. The least-squares
+            fitting problem is normalized using inverse variance weightage, so
+            it is important that `data_err` should contain realistic positive
+            values.
         data_tags : array_like of str of shape (N_data,), optional
             String tags denoting which type of data was provided in `data`.
             Each tag must be one of "f", "dfdx", "dfdy", "ddfdxx", "ddfdxy",
@@ -254,10 +268,12 @@ class ParameterizableFunc(ABC):
         fit_tags = inputs[4].astype('<U6').ravel()
         unique_tags = np.unique(fit_tags)
         bad_tags = np.logical_not(np.isin(unique_tags, FITTING_TAGS))
+        if np.any(fit_data_err <= 0.0):
+            raise ValueError('data_err must be strictly positive!')
         if np.any(bad_tags):
             raise ValueError(f'Unrecognized tags: {unique_tags[bad_tags]}')
         
-        A_mat = self._get_fitting_matrix(fit_x, fit_y, fit_data, fit_tags)
+        A_mat = self._get_fitting_matrix(fit_x, fit_y, fit_tags)
         reg_mat = self._get_regularization_matrix()
         b_vec_norm = fit_data / fit_data_err
         A_mat_norm = np.diag(1.0 / fit_data_err) @ A_mat
