@@ -4,7 +4,7 @@ inverse reduced temperature.
 """
 
 import numpy as np
-from . import ParameterizableFunc
+from . import ParameterizableFunc, FITTING_TAGS
 
 
 class IAPWS95(ParameterizableFunc):
@@ -314,6 +314,25 @@ class IAPWS95(ParameterizableFunc):
 
     def _get_fitting_matrix(self, x, y, data_tags):
         return None
+
+
+    def _get_zero_offset(self, x, y, data_tags):
+        results = np.zeros_like(x)
+        for tag in FITTING_TAGS:
+            idx = (data_tags == tag)
+            if tag == 'f':
+                results[idx] += self.f(x[idx], y[idx])
+            elif tag == 'dfdx':
+                results[idx] += self.dfdx(x[idx], y[idx])
+            elif tag == 'dfdy':
+                results[idx] += self.dfdy(x[idx], y[idx])
+            elif tag == 'ddfdxx':
+                results[idx] += self.ddfdxx(x[idx], y[idx])
+            elif tag == 'ddfdxy':
+                results[idx] += self.ddfdxy(x[idx], y[idx])
+            elif tag == 'ddfdyy':
+                results[idx] += self.ddfdyy(x[idx], y[idx])
+        return results
 
 
     def _set_fitted_params(self, params):

@@ -245,6 +245,35 @@ class ParameterizableFunc(ABC):
         """
         ...
 
+    def _get_zero_offset(
+            self,
+            x: np.ndarray[tuple[int], np.dtype[float]],
+            y: np.ndarray[tuple[int], np.dtype[float]],
+            data_tags: np.ndarray[tuple[int], np.dtype[str]],
+        ) -> np.ndarray[tuple[int, int], np.dtype[float]]:
+        """Internal method required for `fit(...)`. Returns the offset vector
+        `t0` to be subtracted from `t` in the fitting problem `A @ p = t`,
+        corresponding to all flexible parameters being set to zero.
+        
+        Parameters
+        ----------
+        x : ndarray of floats of shape (N_data,)
+            x-coordinates of the input data; guaranteed 1D ndarray.
+        y : ndarray of floats of shape (N_data,)
+            y-coordinates of the input data; guaranteed 1D ndarray.
+        data_tags : ndarray of str of shape (N_data,)
+            String tags denoting which type of data is provided in the target
+            data vector `t`; guaranteed to be supplied as a 1D ndarray. Each
+            tag will be one of "f", "dfdx", "dfdy", "ddfdxx", "ddfdxy", or
+            "ddfdyy".
+
+        Returns
+        -------
+        t0 : ndarray of floats of shape (N_data,)
+            Zero offset of the target vector `t` due to fixed parameters.
+        """
+        return np.zeros_like(x)
+
     def _get_regularization_matrix(
             self,
         ) -> np.ndarray[tuple[int, int], np.dtype[float]] | None:
@@ -332,7 +361,8 @@ class ParameterizableFunc(ABC):
                           UserWarning)
             return None
         
-        b_vec_norm = fit_data / fit_data_err
+        b_vec = fit_data - self._get_zero_offset(fit_x, fit_y, fit_tags)
+        b_vec_norm = b_vec / fit_data_err
         A_mat_norm = np.diag(1.0 / fit_data_err) @ A_mat
         reg_mat = self._get_regularization_matrix()
 
