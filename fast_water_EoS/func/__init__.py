@@ -1,7 +1,60 @@
 """
-Generic definitions for twice-differentiable 2D real functions.
+Subpackage related to the generic implementation of twice-differentiable
+parameterizable 2D real functions.
+
+The base class of `ParameterizableFunc` is an abstract class (or "interface")
+promising these behaviours:
+
+- They represent a real function f(x, y), which is twice-differentiable with
+continuous second derivatives;
+
+- The value of the function f(x, y), and its first-order and second-order
+partial derivatives, can be evaluated at any point, supplied as a pair of
+either floating point numbers or `numpy` arrays;
+
+- There is a `get_params()` method, which extracts the function's internal
+representation in the form of a Python dictionary (which can then be further
+written to a YAML file), and also a `load_params(...)` method, which allows
+internal representation to be reconstructed consistently from the dictionary;
+
+- There is a `fit(...)` method, which allows the internal representation of
+the function to be best-fitted to some other known function g(x, y), whose
+data is supplied as a sequence of independent noisy measurements of either
+g(x, y), its first-order partial derivatives, its second-order partial
+derivatives, or any mixture of those.
+
+As such, the f(x, y) represented by the `ParameterizableFunc` is intended to
+serve as an interpolant for the g(x, y) which it is fitted to. Subclasses then
+represent specific implementations of an interpolation method, for example the
+`Polynomial` subclass for a finite polynomial series or the `BSpline` subclass
+for a piecewise polynomial spline.
+
+Notes
+-----
+The generality of the interface allows for "hard-coded", i.e. fixed-form,
+functions to be subclassed within `ParameterizableFunc`, which are *not* meant
+to be used as interpolators. These are usually useful for testing purposes, or
+to be able to insert known reference functions into the same evaluation
+frameworks as the flexibly-fitted functions.
+
+Loosely speaking, subclasses of `ParameterizableFunc` can be informally
+divided into two categories of intention, namely "flexible" and "fixed-form":
+
+- "Flexible" functions are meant to serve as best-fitted interpolations of a
+source function g(x, y), while "fixed-form" functions are prescribed as fixed
+references.
+
+- Calling either the `fit(...)` or `load_params(...)` method on a "flexible"
+function is an expected part of its normal usage, whereas calling either of
+those two methods on a "fixed-form" function raises a UserWarning and performs
+no action. On the flipside, a "fixed-form" function can be evaluated as soon
+as it is instantiated, whereas a "flexible" function will first default to an
+arbitrary choice of initial parameters when first instantiated, and will raise
+a UserWarning upon evaluation if `fit(...)` or `load_params(...)` was not yet
+performed (in which case the returned results are completely arbitrary).
 """
 
+import warnings
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any
@@ -277,6 +330,11 @@ class ParameterizableFunc(ABC):
         reg_mat = self._get_regularization_matrix()
         b_vec_norm = fit_data / fit_data_err
         A_mat_norm = np.diag(1.0 / fit_data_err) @ A_mat
+
+        if A_mat is None:
+            warnings.warn('Cannot fit onto fixed functional form!',
+                          UserWarning)
+            return None
 
         if reg_mat is None:
 

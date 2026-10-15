@@ -9,8 +9,7 @@ from . import ParameterizableFunc, FITTING_TAGS
 
 class Polynomial(ParameterizableFunc):
     """Represents a polynomial, centered around some (x, y) = (x₀, y₀), up to
-    some order. This subclass is a "flexible" function without uncertainty
-    estimation.
+    some order. This subclass is a "flexible" function.
 
     Parameters
     ----------
@@ -179,6 +178,7 @@ class Polynomial(ParameterizableFunc):
         
 
     def _set_fitted_params(self, params):
+        self._coeffs = np.zeros((self._p + 1, self._p + 1), dtype=float)
         k = 0
         for i in range(self._p + 1):
             for j in range(self._p + 1 - i):
