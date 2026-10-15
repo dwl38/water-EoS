@@ -327,14 +327,14 @@ class ParameterizableFunc(ABC):
             raise ValueError(f'Unrecognized tags: {unique_tags[bad_tags]}')
         
         A_mat = self._get_fitting_matrix(fit_x, fit_y, fit_tags)
-        reg_mat = self._get_regularization_matrix()
-        b_vec_norm = fit_data / fit_data_err
-        A_mat_norm = np.diag(1.0 / fit_data_err) @ A_mat
-
         if A_mat is None:
             warnings.warn('Cannot fit onto fixed functional form!',
                           UserWarning)
             return None
+        
+        b_vec_norm = fit_data / fit_data_err
+        A_mat_norm = np.diag(1.0 / fit_data_err) @ A_mat
+        reg_mat = self._get_regularization_matrix()
 
         if reg_mat is None:
 
