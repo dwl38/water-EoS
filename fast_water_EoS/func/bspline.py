@@ -40,18 +40,35 @@ class BSpline(ParameterizableFunc):
         results in minimization of 4th-order derivatives during the fitting
         process. Defaults to the same value as the interpolation polynomial
         degree.
+    extent : tuple[float, float, float, float], optional
+        Rectangular domain for the BSpline, expressed as `(xa, xb, ya, yb)`
+        for bounds `xa <= x <= xb` and `ya <= y <= yb`. If not specified, the
+        bounds will be set to the data extremes during fitting.
     """
 
-    def __init__(self, order: int = 4, reg_order: int = None):
+    def __init__(
+            self,
+            order: int = 4,
+            reg_order: int = None,
+            extent: tuple[float, float, float, float] = None,
+        ):
         if order < 0:
             raise RuntimeError('order must be nonnegative')
         if (reg_order is not None) and (reg_order < 0):
             raise RuntimeError('reg_order must be nonnegative')
         self._n = 1
-        self._xa = 0.0
-        self._xb = 1.0
-        self._ya = 0.0
-        self._yb = 1.0
+        if extent is None:
+            self._xa, self._xb = 0.0, 1.0
+            self._ya, self._yb = 0.0, 1.0
+            self._fixed_bounds = False
+        else:
+            self._xa, self._xb = float(extent[0]), float(extent[1])
+            self._ya, self._yb = float(extent[2]), float(extent[3])
+            if self._xa >= self._xb:
+                raise RuntimeError('xa must be less than xb')
+            if self._ya >= self._yb:
+                raise RuntimeError('ya must be less than yb')
+            self._fixed_bounds = True
         self._p = int(order)
         self._make_knots()
         self._coeffs = np.zeros((self._n + self._p, self._n + self._p))
@@ -158,6 +175,7 @@ class BSpline(ParameterizableFunc):
             'xb': float(self._xb),
             'ya': float(self._ya),
             'yb': float(self._yb),
+            'fixed_bounds': bool(self._fixed_bounds),
             'p': int(self._p),
             'coeffs': [[float(c) for c in r] for r in self._coeffs],
             'reg_order': int(self._reg_order),
@@ -167,10 +185,9 @@ class BSpline(ParameterizableFunc):
 
     def load_params(self, p):
         self._n = int(p['n'])
-        self._xa = float(p['xa'])
-        self._xb = float(p['xb'])
-        self._ya = float(p['ya'])
-        self._yb = float(p['yb'])
+        self._xa, self._xb = float(p['xa']), float(p['xb'])
+        self._ya, self._yb = float(p['ya']), float(p['yb'])
+        self._fixed_bounds = bool(p['fixed_bounds'])
         self._p = int(p['p'])
         self._make_knots()
         self._coeffs = np.asarray(p['coeffs'], dtype=float)
@@ -181,11 +198,10 @@ class BSpline(ParameterizableFunc):
     def _get_fitting_matrix(self, x, y, data_tags):
 
         N_data = x.shape[0]
-        if N_data < (self._p + 2):
-            raise RuntimeError('Insufficient data to fit parameters')
-        self._n = int(np.sqrt(N_data - self._p - 1))
-        self._xa, self._xb = np.min(x), np.max(x)
-        self._ya, self._yb = np.min(y), np.max(y)
+        self._n = int(round(np.sqrt(N_data)))
+        if not self._fixed_bounds:
+            self._xa, self._xb = np.min(x), np.max(x)
+            self._ya, self._yb = np.min(y), np.max(y)
         self._make_knots()
         N_params = self._n + self._p
 
