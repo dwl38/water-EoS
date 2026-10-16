@@ -118,14 +118,14 @@ class FreeEnergySurface:
         T : array_like of shape (N_data,)
             Temperatures, in K.
         p : array_like of shape (N_data,)
-            Pressures corresponding to the provided temperatures and volumes,
+            Pressures corresponding to the provided volumes and temperatures,
             in bar.
         p_err : array_like of shape (N_data,)
-            Uncertainties of pressures corresponding to the provided
-            temperatures and volumes, in bar.
+            Uncertainties of pressures corresponding to the provided volumes
+            and temperatures, in bar.
         U : array_like of shape (N_data,)
-            Internal (total) energies corresponding to the provided
-            temperatures and volumes, in eV.
+            Internal (total) energies corresponding to the provided volumes
+            and temperatures, in eV.
         U_err : array_like of shape (N_data,)
             Uncertainties of internal (total) energies corresponding to the
             provided temperatures and volumes, in eV.
