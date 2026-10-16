@@ -156,7 +156,8 @@ class _FES:
         )
 
         if self._method == 'bspline':
-            xmax, ymax = np.max(x) + np.min(x), np.max(y) + np.min(y)
+            xmax = float(np.max(x) + np.min(x))
+            ymax = float(np.max(y) + np.min(y))
             self.f = Additive(
                 [IdealGas, BSpline],
                 [{'dof': self._dof}, {'extent': (0.0, xmax, 0.0, ymax)}],

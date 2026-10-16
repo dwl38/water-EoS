@@ -130,6 +130,7 @@ def main() -> None:
     rho_obs = WATER_MASS_DENSITY_CONVERSION / V_obs
     fes = FreeEnergySurface()
     fes.fit_to_data(V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err)
+    fes.save_to_file(output_dir / 'EoS.yaml')
 
     print(f'Equation of state fitted in {elapsed_time(time_start_0)}.')
 
@@ -235,18 +236,6 @@ def main() -> None:
     unc_surface = np.sqrt((xdfdx_unc**2) + (ydfdy_unc**2))
     vmax = np.max(unc_surface)
     levels = np.linspace(0.0, vmax, _N_PLOT_POINTS)
-
-    idx = np.argmax(unc_surface)
-    maximal_unc_V, maximal_unc_T = V_plot[idx], T_plot[idx]
-    delta_p = fes.pressure_unc(maximal_unc_V, maximal_unc_T)
-    delta_U = fes.internal_energy_unc(maximal_unc_V, maximal_unc_T)
-    with open(output_dir / 'uncertainty.txt', 'w') as fp:
-        fp.write('Maximal uncertainty at:\n')
-        fp.write(f'    V = {maximal_unc_V} Å³\n')
-        fp.write(f'    T = {maximal_unc_T} K\n')
-        fp.write('with corresponding uncertainties:\n')
-        fp.write(f'    δp = {delta_p} bar\n')
-        fp.write(f'    δU = {delta_U} eV\n')
 
     fig, ax = plt.subplots()
     fig.set_size_inches(6.0, 4.0)
