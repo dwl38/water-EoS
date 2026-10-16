@@ -168,7 +168,7 @@ class FreeEnergySurface:
                 for p in params['committee']:
                     model = _FES(self._method, self._dof)
                     model.load_from_dict(p)
-                    self._committee.append(p)
+                    self._committee.append(model)
                 assert len(self._committee) == self._N_models
             else:
                 self._committee = None

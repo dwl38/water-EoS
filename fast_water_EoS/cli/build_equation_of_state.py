@@ -62,7 +62,6 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import AsinhNorm
 from pathlib import Path
 
-from fast_water_EoS import __version__
 from fast_water_EoS.io import read_file
 from fast_water_EoS.misc import elapsed_time, SI_prefix
 from fast_water_EoS.free_energy_surface import FreeEnergySurface
