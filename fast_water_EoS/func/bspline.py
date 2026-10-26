@@ -5,6 +5,7 @@ A 2D B-spline of arbitrary order.
 import warnings
 import numpy as np
 from . import ParameterizableFunc, FITTING_TAGS
+from ..misc import castable
 
 
 def _generate_B(x, knots, delta, p):
@@ -35,28 +36,51 @@ class BSpline(ParameterizableFunc):
     ----------
     order : int, optional
         Polynomial degree for interpolation; defaults to 4.
-    reg_order : int, optional
-        Order at which to regularize derivatives, e.g. setting this to 4
-        results in minimization of 4th-order derivatives during the fitting
-        process. Defaults to the same value as the interpolation polynomial
-        degree.
+    reg_orders : list[tuple[int, int]], optional
+        List of orders at which to regularize derivatives, where each entry
+        `(k, l)` results in minimization of the mixed `(k,l)`ᵗʰ partial
+        derivative of the B-spline during the fitting process. Providing a
+        single nonnegative integer `k` is equivalent to `[(k, 0), (0, k)]`,
+        i.e. minimizing the `k`ᵗʰ partial derivatives in both the x and y
+        directions. Passing `k = -1` as a special integer disables all
+        regularization. Defaults to `[(p, 0), (0, p)]`, where `p` is the
+        interpolation polynomial degree.
     extent : tuple[float, float, float, float], optional
         Rectangular domain for the BSpline, expressed as `(xa, xb, ya, yb)`
         for bounds `xa <= x <= xb` and `ya <= y <= yb`. If not specified, the
         bounds will be set to the data extremes during fitting.
+    n : int or tuple[int, int], optional
+        Number of knots to divide the domain up into along each axis. Will be
+        interpreted as `(nx, ny)` if provided as a tuple, or `nx = ny = n` if
+        provided as a single integer. If not specified, will be automatically
+        set during fitting, such that `nx * ny` is greater than or equal to
+        the number of data points, and `ny / nx` is approximately close to the
+        aspect ratio `(yb - ya) / (xb - xa)`.
     """
 
     def __init__(
             self,
             order: int = 4,
-            reg_order: int = None,
+            reg_orders: list[tuple[int, int]] = None,
             extent: tuple[float, float, float, float] = None,
+            n: int | tuple[int, int] = None,
         ):
         if order < 0:
             raise RuntimeError('order must be nonnegative')
-        if (reg_order is not None) and (reg_order < 0):
-            raise RuntimeError('reg_order must be nonnegative')
-        self._n = 1
+        if n is None:
+            self._nx = 1
+            self._ny = 1
+            self._fixed_n = False
+        else:
+            if castable(n, int):
+                self._nx = int(n)
+                self._ny = int(n)
+            else:
+                self._nx = int(n[0])
+                self._ny = int(n[1])
+            if (self._nx < 1) or (self._ny < 1):
+                raise RuntimeError('n must be positive')
+            self._fixed_n = True
         if extent is None:
             self._xa, self._xb = 0.0, 1.0
             self._ya, self._yb = 0.0, 1.0
@@ -71,23 +95,39 @@ class BSpline(ParameterizableFunc):
             self._fixed_bounds = True
         self._p = int(order)
         self._make_knots()
-        self._coeffs = np.zeros((self._n + self._p, self._n + self._p))
-        self._reg_order = self._p if reg_order is None else int(reg_order)
+        self._coeffs = np.zeros((self._nx + self._p, self._ny + self._p))
+        if reg_orders is None:
+            self._reg_orders = [(self._p, 0), (0, self._p)]
+        elif castable(reg_orders, int):
+            k = int(reg_orders)
+            if k == -1:
+                self._reg_orders = list()
+            else:
+                if k < 0:
+                    raise RuntimeError('reg_orders must be nonnegative')
+                self._reg_orders = [(k, 0), (0, k)]
+        else:
+            self._reg_orders = list()
+            for pair in reg_orders:
+                k, l = int(pair[0]), int(pair[1])
+                if (k < 0) or (l < 0):
+                    raise RuntimeError('reg_orders must be nonnegative')
+                self._reg_orders.append((int(pair[0]), int(pair[1])))
         self._fitted = False
 
 
     def _make_knots(self):
-        self._xdelta = (self._xb - self._xa) / self._n
-        self._ydelta = (self._yb - self._ya) / self._n
+        self._xdelta = (self._xb - self._xa) / self._nx
+        self._ydelta = (self._yb - self._ya) / self._ny
         self._xknots = np.linspace(
             self._xa - (self._p * self._xdelta),
             self._xb + (self._p * self._xdelta),
-            self._n + 1 + (2 * self._p),
+            self._nx + 1 + (2 * self._p),
         )
         self._yknots = np.linspace(
             self._ya - (self._p * self._ydelta),
             self._yb + (self._p * self._ydelta),
-            self._n + 1 + (2 * self._p),
+            self._ny + 1 + (2 * self._p),
         )
 
 
@@ -170,7 +210,9 @@ class BSpline(ParameterizableFunc):
 
     def get_params(self):
         return {
-            'n': int(self._n),
+            'nx': int(self._nx),
+            'ny': int(self._ny),
+            'fixed_n': bool(self._fixed_n),
             'xa': float(self._xa),
             'xb': float(self._xb),
             'ya': float(self._ya),
@@ -178,34 +220,40 @@ class BSpline(ParameterizableFunc):
             'fixed_bounds': bool(self._fixed_bounds),
             'p': int(self._p),
             'coeffs': [[float(c) for c in r] for r in self._coeffs],
-            'reg_order': int(self._reg_order),
+            'reg_orders': list(self._reg_orders),
             'fitted': bool(self._fitted),
         }
     
 
     def load_params(self, p):
-        self._n = int(p['n'])
+        self._nx = int(p['nx'])
+        self._ny = int(p['ny'])
+        self._fixed_n = bool(p['fixed_n'])
         self._xa, self._xb = float(p['xa']), float(p['xb'])
         self._ya, self._yb = float(p['ya']), float(p['yb'])
         self._fixed_bounds = bool(p['fixed_bounds'])
         self._p = int(p['p'])
         self._make_knots()
         self._coeffs = np.asarray(p['coeffs'], dtype=float)
-        self._reg_order = int(p['reg_order'])
+        self._reg_orders = list(p['reg_orders'])
         self._fitted = bool(p['fitted'])
 
 
     def _get_fitting_matrix(self, x, y, data_tags):
 
         N_data = x.shape[0]
-        self._n = int(round(np.sqrt(N_data)))
         if not self._fixed_bounds:
             self._xa, self._xb = np.min(x), np.max(x)
             self._ya, self._yb = np.min(y), np.max(y)
+        if not self._fixed_n:
+            aspect_ratio = (self._yb - self._ya) / (self._xb - self._xa)
+            self._nx = int(np.ceil(np.sqrt(N_data / aspect_ratio)))
+            self._ny = int(np.ceil(aspect_ratio * self._nx))
         self._make_knots()
-        N_params = self._n + self._p
+        N_params_x = self._nx + self._p
+        N_params_y = self._ny + self._p
 
-        A_mat = np.zeros((N_data, N_params, N_params), dtype=float)
+        A_mat = np.zeros((N_data, N_params_x, N_params_y), dtype=float)
         for tag in FITTING_TAGS:
             idx = (data_tags == tag)
             if tag == 'f':
@@ -213,7 +261,7 @@ class BSpline(ParameterizableFunc):
                                       self._p)
                 y_basis = _generate_B(y[idx], self._yknots, self._ydelta,
                                       self._p)
-                A_mat[idx,:] = x_basis.T[:,:,None] * y_basis.T[:,None,:]
+                A_mat[idx,:,:] = x_basis.T[:,:,None] * y_basis.T[:,None,:]
             elif tag == 'dfdx':
                 if self._p < 1:
                     raise RuntimeError('Unable to fit to gradient data, try '
@@ -223,7 +271,7 @@ class BSpline(ParameterizableFunc):
                 x_basis_p = (x_basis[:-1] - x_basis[1:]) / self._xdelta
                 y_basis = _generate_B(y[idx], self._yknots, self._ydelta,
                                       self._p)
-                A_mat[idx,:] = x_basis_p.T[:,:,None] * y_basis.T[:,None,:]
+                A_mat[idx,:,:] = x_basis_p.T[:,:,None] * y_basis.T[:,None,:]
             elif tag == 'dfdy':
                 if self._p < 1:
                     raise RuntimeError('Unable to fit to gradient data, try '
@@ -233,7 +281,7 @@ class BSpline(ParameterizableFunc):
                 y_basis = _generate_B(y[idx], self._yknots, self._ydelta,
                                       self._p - 1)
                 y_basis_p = (y_basis[:-1] - y_basis[1:]) / self._ydelta
-                A_mat[idx,:] = x_basis.T[:,:,None] * y_basis_p.T[:,None,:]
+                A_mat[idx,:,:] = x_basis.T[:,:,None] * y_basis_p.T[:,None,:]
             elif tag == 'ddfdxx':
                 if self._p < 2:
                     raise RuntimeError('Unable to fit to gradient data, try '
@@ -244,7 +292,7 @@ class BSpline(ParameterizableFunc):
                 x_basis_pp = (x_basis_p[:-1] - x_basis_p[1:]) / self._xdelta
                 y_basis = _generate_B(y[idx], self._yknots, self._ydelta,
                                       self._p)
-                A_mat[idx,:] = x_basis_pp.T[:,:,None] * y_basis.T[:,None,:]
+                A_mat[idx,:,:] = x_basis_pp.T[:,:,None] * y_basis.T[:,None,:]
             elif tag == 'ddfdxy':
                 if self._p < 1:
                     raise RuntimeError('Unable to fit to gradient data, try '
@@ -255,7 +303,7 @@ class BSpline(ParameterizableFunc):
                 y_basis = _generate_B(y[idx], self._yknots, self._ydelta,
                                       self._p - 1)
                 y_basis_p = (y_basis[:-1] - y_basis[1:]) / self._ydelta
-                A_mat[idx,:] = x_basis_p.T[:,:,None] * y_basis_p.T[:,None,:]
+                A_mat[idx,:,:] = x_basis_p.T[:,:,None] * y_basis_p.T[:,None,:]
             elif tag == 'ddfdyy':
                 if self._p < 2:
                     raise RuntimeError('Unable to fit to gradient data, try '
@@ -266,28 +314,36 @@ class BSpline(ParameterizableFunc):
                                       self._p - 2)
                 y_basis_p = (y_basis[:-1] - y_basis[1:]) / self._ydelta
                 y_basis_pp = (y_basis_p[:-1] - y_basis_p[1:]) / self._ydelta
-                A_mat[idx,:] = x_basis.T[:,:,None] * y_basis_pp.T[:,None,:]
-        return A_mat.reshape((N_data, N_params**2))
+                A_mat[idx,:,:] = x_basis.T[:,:,None] * y_basis_pp.T[:,None,:]
+        return A_mat.reshape((N_data, N_params_x * N_params_y))
     
 
     def _get_regularization_matrix(self):
-        N_params = self._n + self._p
-        if self._reg_order == 0:
-            return np.eye(N_params**2, dtype=float)
-        else:
-            mat_x = np.eye(N_params**2, dtype=float).reshape((N_params,) * 4)
-            mat_y = np.eye(N_params**2, dtype=float).reshape((N_params,) * 4)
-            for _ in range(self._reg_order):
-                mat_x -= np.roll(mat_x, shift=1, axis=2)
-                mat_y -= np.roll(mat_y, shift=1, axis=3)
-            mat_x = mat_x.reshape((N_params**2, N_params**2))
-            mat_y = mat_y.reshape((N_params**2, N_params**2))
-            return np.concat((mat_x, mat_y), axis=0)
+        if len(self._reg_orders) == 0:
+            return None
+        N_params_x = self._nx + self._p
+        N_params_y = self._ny + self._p
+        matrices = list()
+        for k, l in self._reg_orders:
+            if (k + l) == 0:
+                matrices.append(np.eye(N_params_x * N_params_y, dtype=float))
+            else:
+                mat = np.eye(N_params_x * N_params_y, dtype=float).reshape(
+                    (N_params_x, N_params_y, N_params_x, N_params_y)
+                )
+                for _ in range(k):
+                    mat -= np.roll(mat, shift=1, axis=2)
+                for _ in range(l):
+                    mat -= np.roll(mat, shift=1, axis=3)
+                matrices.append(mat.reshape((N_params_x * N_params_y,
+                                             N_params_x * N_params_y)))
+        return np.concat(matrices, axis=0)
     
 
     def _set_fitted_params(self, params):
-        N_params = self._n + self._p
-        self._coeffs = params.reshape((N_params, N_params))
+        N_params_x = self._nx + self._p
+        N_params_y = self._ny + self._p
+        self._coeffs = params.reshape((N_params_x, N_params_y))
         self._fitted = True
 
         
