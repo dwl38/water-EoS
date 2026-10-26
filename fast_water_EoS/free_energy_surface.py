@@ -8,31 +8,39 @@ import yaml
 import numpy as np
 from typing import Literal
 from numpy._typing import _AnyShape
-from ._fes import _FES
+from ._fes_deltatau import _FES_DeltaTau
+from ._fes_xy import _FES_XY
 
 
 class FreeEnergySurface:
-    """Represents a free energy surface `F(V, T)`. The fit is performed in
-    terms of the dimensionless free energy as a function of reduced density
-    and reduced inverse temperature:
+    """Represents a free energy surface `F(V, T)`. This class can be used to
+    either call on experimentally-fitted presets like IAWPS-95 and GERG-2008,
+    which are based on the dimensionless free energy as a function of reduced
+    density `δ` and reduced inverse temperature `τ`:
     ```
-    x  =  V𞁞 / V ,
-    y  =  T𞁞 / T ,
-    F(V, T)  =  kT f(x, y) ,
+    δ  =  V𞁞 / V ,
+    τ  =  T𞁞 / T ,
+    F(V, T)  =  kT f(δ, τ) ,
     ```
 
     where `V𞁞 = 92.9039635 Å³`  and `T𞁞 = 647.096 K` represent the volume and
-    temperature respectively of water's liquid-vapour critical point. This
-    choice of nondimensionalizing `V` and `T` relative to the critical point
-    is meaningful for the preset free energy surfaces (e.g. IAWPS-95 and
-    GERG-2008) as they fix divergences at `x = y = 1`, but completely
-    arbitrary for fitted free energy surfaces as it simply represents a
-    rescaling of the variables.
+    temperature respectively of water's liquid-vapour critical point;
+    alternatively, this class can also be used to construct flexible models
+    for the dimensionless free energy as a function of logarithmic density `x`
+    and logarithmic inverse temperature `y`:
+    ```
+    x  =  ln(V₀ / V) ,
+    y  =  ln(T₀ / T) ,
+    F(V, T)  =  kT f(x, y) ,
+    ```
+     
+    where `V₀`  and `T₀` are arbitrary reference points, which may be fitted
+    to new thermodynamic data (e.g. from simulations).
 
     Parameters
     ----------
-    model : {'bspline', 'poly', 'iapws', 'gerg'}, optional
-        Model for the equation of state `f(x, y)`. Some of these choices
+    model : {'bspline', 'iapws', 'gerg'}, optional
+        Model for the equation of state `f = F / kT`. Some of these choices
         correspond to flexible models, which are designed to be fitted onto
         user-supplied thermodynamic data, whereas some correspond to fixed
         presets from literature (typically based on experimental data).
@@ -40,26 +48,15 @@ class FreeEnergySurface:
 
         - 'bspline': A flexible model based on B-splines, which are local
           basis functions guaranteeing well-regularized interpolation.
-          Specifically, the free energy function `f(x, y)` is expressed as an
-          ideal gas part plus a residual part, where the residual part is
-          fitted using 4th-order B-splines; the resulting model is purely
-          interpolatory, and reverts back to the ideal gas when far outside
-          the rectangular domain bounded by the provided data.
-        - 'poly': A flexible model based on a polynomial series. Specifically,
-          the free energy function `f(x, y)` is expressed as an ideal gas part
-          plus a residual part, where the residual part is fitted using the
-          highest-order polynomial possible. Although the resulting model
-          nominally has some extrapolatory power, in practice the Runge
-          phenomenon results in rapid divergences especially when far away
-          from the provided data's center-of-mass.
+          Specifically, the free energy function is expressed as a rigid
+          triatomic ideal gas part plus a residual part, where the residual
+          part is fitted using 4th-order B-splines; the resulting model is
+          purely interpolatory, and reverts back to the ideal gas when far
+          outside the domain bounded by the provided data.
         - 'iapws': The IAPWS-95 equation of state, a fixed preset.
         - 'gerg': The GERG-2008 equation of state, a fixed preset.
 
         The default option is `bspline`.
-    dof : int or float, optional
-        Number of degrees of freedom per particle, for the ideal gas baseline
-        used in the flexible models. This parameter is ignored for fixed
-        presets. Defaults to 6, which is the rigid triatomic case.
     N_models : int, optional
         Number of internal models for bootstrapping estimation of flexible
         model uncertainties. This parameter is ignored for fixed presets.
@@ -68,34 +65,24 @@ class FreeEnergySurface:
 
     def __init__(
             self,
-            method: Literal['bspline', 'poly', 'iapws', 'gerg'] = None,
-            dof: int | float = 6,
+            method: Literal['bspline', 'iapws', 'gerg'] = None,
             N_models: int = 100,
         ):
         if method is None or method == 'bspline':
-            self._main_model = _FES('bspline', dof=dof)
+            self._main_model = _FES_XY('bspline')
             self._committee = None
             self._N_models = int(N_models)
             self._method = 'bspline'
-            self._dof = float(dof)
-        elif method == 'poly':
-            self._main_model = _FES('poly', dof=dof)
-            self._committee = None
-            self._N_models = int(N_models)
-            self._method = 'poly'
-            self._dof = float(dof)
         elif method == 'iapws':
-            self._main_model = _FES('iapws')
+            self._main_model = _FES_DeltaTau('iapws')
             self._committee = None
             self._N_models = 0
             self._method = 'iapws'
-            self._dof = 6.0
         elif method == 'gerg':
-            self._main_model = _FES('gerg')
+            self._main_model = _FES_DeltaTau('gerg')
             self._committee = None
             self._N_models = 0
             self._method = 'gerg'
-            self._dof = 6.0
         else:
             raise RuntimeError(f'method "{method}" not recognized!')
     
@@ -130,16 +117,28 @@ class FreeEnergySurface:
             Uncertainties of internal (total) energies corresponding to the
             provided temperatures and volumes, in eV.
         """
+        inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err)
+        V = inputs[0].astype(float).ravel()
+        T = inputs[1].astype(float).ravel()
+        p = inputs[2].astype(float).ravel()
+        p_err = inputs[3].astype(float).ravel()
+        U = inputs[4].astype(float).ravel()
+        U_err = inputs[5].astype(float).ravel()
+        N_data = V.shape[0]
+
         self._main_model.fit_to_data(V, T, p, p_err, U, U_err)
 
         if self._N_models > 0:
             rng = np.random.default_rng()
             self._committee = list()
             for _ in range(self._N_models):
-                new_p = p + rng.normal(scale=p_err)
-                new_U = U + rng.normal(scale=U_err)
-                model = _FES(self._method, self._dof)
-                model.fit_to_data(V, T, new_p, p_err, new_U, U_err)
+                mask = np.ones(N_data, dtype=np.bool)
+                mask[rng.integers(N_data)] = False
+                new_p = p[mask] + rng.normal(scale=p_err[mask])
+                new_U = U[mask] + rng.normal(scale=U_err[mask])
+                model = _FES_XY(self._method)
+                model.fit_to_data(V[mask], T[mask], new_p, p_err[mask], new_U,
+                                  U_err[mask])
                 self._committee.append(model)
         else:
             self._committee = None
@@ -157,16 +156,15 @@ class FreeEnergySurface:
             params = yaml.safe_load(fp)
         if 'method' not in params:
             raise IOError('"method" field missing from file!')
-        if params['method'] in ('bspline', 'poly'):
+        if params['method'] == 'bspline':
             self._method = str(params['method'])
             self._N_models = int(params['N_models'])
-            self._dof = float(params['dof'])
-            self._main_model = _FES(self._method, self._dof)
+            self._main_model = _FES_XY(self._method)
             self._main_model.load_from_dict(params['main'])
             if 'committee' in params:
                 self._committee = list()
                 for p in params['committee']:
-                    model = _FES(self._method, self._dof)
+                    model = _FES_XY(self._method)
                     model.load_from_dict(p)
                     self._committee.append(model)
                 assert len(self._committee) == self._N_models
@@ -174,10 +172,9 @@ class FreeEnergySurface:
                 self._committee = None
         elif params['method'] in ('iapws', 'gerg'):
             self._method = str(params['method'])
-            self._main_model = _FES(self._method)
+            self._main_model = _FES_DeltaTau(self._method)
             self._committee = None
             self._N_models = 0
-            self._dof = 6.0
         else:
             raise RuntimeError(f'method "{params['method']}" not recognized!')
 
@@ -191,9 +188,8 @@ class FreeEnergySurface:
             The file to save to.
         """
         params = {'method': str(self._method)}
-        if self._method in ('bspline', 'poly'):
+        if self._method == 'bspline':
             params['N_models'] = int(self._N_models)
-            params['dof'] = float(self._dof)
             params['main'] = self._main_model.save_to_dict()
             if self._committee is not None:
                 params['committee'] = [model.save_to_dict()

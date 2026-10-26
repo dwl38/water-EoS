@@ -8,10 +8,10 @@ from . import ParameterizableFunc, FITTING_TAGS
 
 
 class GERG2008(ParameterizableFunc):
-    """Represents the dimensionless free energy function `f(x, y)` from the
+    """Represents the dimensionless free energy function `f(δ, τ)` from the
     GERG-2008 equation of state for liquid water, in terms of the reduced
-    density `x` and inverse reduced temperature `y`. The critical point is at
-    `x = y = 1` by construction."""
+    density `δ` and inverse reduced temperature `τ`. The critical point is at
+    `δ = τ = 1` by construction."""
 
     def __init__(self):
         self._params = {

@@ -7,8 +7,8 @@ import numpy as np
 from . import ParameterizableFunc, FITTING_TAGS
 
 
-class IdealGas(ParameterizableFunc):
-    """Represents the dimensionless free energy function `f(x, y)` for an
+class IdealGasDeltaTau(ParameterizableFunc):
+    """Represents the dimensionless free energy function `f(δ, τ)` for an
     ideal gas.
     
     Parameters
@@ -43,8 +43,7 @@ class IdealGas(ParameterizableFunc):
     
 
     def ddfdxy(self, x, y):
-        _, _, zeros = np.broadcast_arrays(x, y, 0.0)
-        return zeros
+        return np.broadcast_arrays(x, y, 0.0)[2]
     
 
     def ddfdyy(self, x, y):
@@ -71,15 +70,13 @@ class IdealGas(ParameterizableFunc):
             if tag == 'f':
                 results[idx] += self.f(x[idx], y[idx])
             elif tag == 'dfdx':
-                results[idx] += self.dfdx(x[idx], y[idx])
+                results[idx] += 1.0 / x[idx]
             elif tag == 'dfdy':
-                results[idx] += self.dfdy(x[idx], y[idx])
+                results[idx] += self._dof / (2.0 * y[idx])
             elif tag == 'ddfdxx':
-                results[idx] += self.ddfdxx(x[idx], y[idx])
-            elif tag == 'ddfdxy':
-                results[idx] += self.ddfdxy(x[idx], y[idx])
+                results[idx] -= 1.0 / (x[idx]**2)
             elif tag == 'ddfdyy':
-                results[idx] += self.ddfdyy(x[idx], y[idx])
+                results[idx] -= self._dof / (2.0 * (y[idx]**2))
         return results
 
 

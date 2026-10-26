@@ -7,7 +7,7 @@ from pathlib import Path
 from fast_water_EoS.func.additive import Additive
 from fast_water_EoS.func.polynomial import Polynomial
 from fast_water_EoS.func.bspline import BSpline
-from fast_water_EoS.func.ideal_gas import IdealGas
+from fast_water_EoS.func.ideal_gas_deltatau import IdealGasDeltaTau
 
 
 @pytest.fixture
@@ -258,9 +258,9 @@ def test_comparative(logging_dir: Path, rng: np.random.Generator):
     fig.set_size_inches(12.0, 10.0)
     art = ax[0][0].tricontourf(plot_x, plot_y, plot_f, levels=levels, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
     ax[0][0].set_title('True')
-    evaluate_model(IdealGas(), 'IdealGas', ax[0][1])
+    evaluate_model(IdealGasDeltaTau(), 'IdealGas', ax[0][1])
     evaluate_model(BSpline(), 'BSpline', ax[1][0])
-    evaluate_model(Additive([IdealGas, BSpline], [dict(), dict()]), 'IdealGas + BSpline', ax[1][1])
+    evaluate_model(Additive([IdealGasDeltaTau, BSpline], [dict(), dict()]), 'IdealGas + BSpline', ax[1][1])
     for i in range(2):
         for j in range(2):
             ax[i][j].set_aspect(1.0)
@@ -367,7 +367,7 @@ def test_read_write(logging_dir: Path, rng: np.random.Generator):
     with open(save_file, 'w') as fp:
         yaml.safe_dump(orig_model.get_params(), fp)
 
-    new_model = Additive([Polynomial, IdealGas], [{'order': 10}, dict()])
+    new_model = Additive([Polynomial, IdealGasDeltaTau], [{'order': 10}, dict()])
     with open(save_file, 'r') as fp:
         new_model.load_params(yaml.safe_load(fp))
 

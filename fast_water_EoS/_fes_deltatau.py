@@ -11,35 +11,35 @@ from numpy._typing import _AnyShape
 from .func.additive import Additive
 from .func.polynomial import Polynomial
 from .func.bspline import BSpline
-from .func.ideal_gas import IdealGas
+from .func.ideal_gas_deltatau import IdealGasDeltaTau
 from .func.iapws import IAPWS95
 from .func.gerg import GERG2008
 from .constants import (K_B, PRESSURE_CONVERSION, CRITICAL_VOLUME,
                         CRITICAL_TEMPERATURE)
 
 
-class _FES:
+class _FES_DeltaTau:
     """Represents a free energy surface `F(V, T)`. The fit is performed in
     terms of the dimensionless free energy as a function of reduced density
-    and reduced inverse temperature:
+    `δ` and reduced inverse temperature `τ`:
     ```
-    x  =  V𞁞 / V ,
-    y  =  T𞁞 / T ,
-    F(V, T)  =  kT f(x, y) ,
+    δ  =  V𞁞 / V ,
+    τ  =  T𞁞 / T ,
+    F(V, T)  =  kT f(δ, τ) ,
     ```
 
     where `V𞁞 = 92.9039635 Å³`  and `T𞁞 = 647.096 K` represent the volume and
     temperature respectively of water's liquid-vapour critical point. This
     choice of nondimensionalizing `V` and `T` relative to the critical point
     is meaningful for the preset free energy surfaces (e.g. IAWPS-95 and
-    GERG-2008) as they fix divergences at `x = y = 1`, but completely
+    GERG-2008) as they fix divergences at `δ = τ = 1`, but completely
     arbitrary for fitted free energy surfaces as it simply represents a
     rescaling of the variables.
 
     Parameters
     ----------
     model : {'bspline', 'poly', 'iapws', 'gerg'}, optional
-        Model for the equation of state `f(x, y)`. Some of these choices
+        Model for the equation of state `f(δ, τ)`. Some of these choices
         correspond to flexible models, which are designed to be fitted onto
         user-supplied thermodynamic data, whereas some correspond to fixed
         presets from literature (typically based on experimental data).
@@ -47,41 +47,33 @@ class _FES:
 
         - 'bspline': A flexible model based on B-splines, which are local
           basis functions guaranteeing well-regularized interpolation.
-          Specifically, the free energy function `f(x, y)` is expressed as an
+          Specifically, the free energy function `f(δ, τ)` is expressed as an
           ideal gas part plus a residual part, where the residual part is
           fitted using 4th-order B-splines; the resulting model is purely
           interpolatory, and reverts back to the ideal gas when far outside
           the rectangular domain bounded by the provided data.
         - 'poly': A flexible model based on a polynomial series. Specifically,
-          the free energy function `f(x, y)` is expressed as an ideal gas part
-          plus a residual part, where the residual part is fitted using the
-          highest-order polynomial possible. Although the resulting model
-          nominally has some extrapolatory power, in practice the Runge
-          phenomenon results in rapid divergences especially when far away
-          from the provided data's center-of-mass.
+          the free energy function `f(δ, τ)` is expressed as the highest-order
+          polynomial possible. Although the resulting model nominally has some
+          extrapolatory power, in practice the Runge phenomenon results in
+          rapid divergences especially when far away from the provided data's
+          center-of-mass.
         - 'iapws': The IAPWS-95 equation of state, a fixed preset.
         - 'gerg': The GERG-2008 equation of state, a fixed preset.
 
         The default option is `bspline`.
-    dof : int or float, optional
-        Number of degrees of freedom per particle, for the ideal gas baseline
-        used in the flexible models. This parameter is ignored for fixed
-        presets. Defaults to 6, which is the rigid triatomic case.
     """
 
     def __init__(
             self,
             method: Literal['bspline', 'poly', 'iapws', 'gerg'] = None,
-            dof: int | float = 6,
         ):
         if method is None or method == 'bspline':
             self.f = None
-            self._dof = float(dof)
             self._method = 'bspline'
             self._fixed_preset = False
         elif method == 'poly':
             self.f = None
-            self._dof = float(dof)
             self._method = 'poly'
             self._fixed_preset = False
         elif method == 'iapws':
@@ -159,20 +151,13 @@ class _FES:
             xmax = float(np.max(x) + np.min(x))
             ymax = float(np.max(y) + np.min(y))
             self.f = Additive(
-                [IdealGas, BSpline],
-                [{'dof': self._dof}, {'extent': (0.0, xmax, 0.0, ymax)}],
+                [IdealGasDeltaTau, BSpline],
+                [{'dof': 6.0}, {'extent': (0.0, xmax, 0.0, ymax)}],
             )
-            self.f.fit(xx, yy, data, data_err, data_tags)
         elif self._method == 'poly':
             max_order = int(np.sqrt(2.0 * data.shape[0]) - 1.5)
-            self.f = Additive(
-                [IdealGas, Polynomial],
-                [{'dof': self._dof}, {'order': max_order}],
-            )
-            self.f.fit(xx, yy, data, data_err, data_tags)
-        else:
-            raise RuntimeError('Internal `_method` field somehow invalid: '
-                               + self._method)
+            self.f = Polynomial(max_order)
+        self.f.fit(xx, yy, data, data_err, data_tags)
         return None
 
 
@@ -187,19 +172,17 @@ class _FES:
         if 'method' not in params:
             raise IOError('"method" field missing from params!')
         if params['method'] == 'bspline':
-            self._dof = float(params['dof'])
             if 'f' in params:
-                self.f = Additive([IdealGas, BSpline], [dict(), dict()])
+                self.f = Additive([IdealGasDeltaTau, BSpline],
+                                  [dict(), dict()])
                 self.f.load_params(params['f'])
             else:
                 self.f = None
             self._method = 'bspline'
             self._fixed_preset = False
         elif params['method'] == 'poly':
-            self._dof = float(params['dof'])
             if 'f' in params:
-                self.f = Additive([IdealGas, Polynomial],
-                                  [dict(), {'order': 2}])
+                self.f = Polynomial(2)
                 self.f.load_params(params['f'])
             else:
                 self.f = None
@@ -220,10 +203,8 @@ class _FES:
     def save_to_dict(self):
         """Saves this free energy surface to a dict."""
         params = {'method': str(self._method)}
-        if not self._fixed_preset:
-            params['dof'] = float(self._dof)
-            if self.f is not None:
-                params['f'] = self.f.get_params()
+        if (not self._fixed_preset) and (self.f is not None):
+            params['f'] = self.f.get_params()
         return params
 
 
@@ -393,9 +374,9 @@ class _FES:
             Volume, in Å³. Will default to NaN if no root is found.
         """
         target = p * CRITICAL_VOLUME / (PRESSURE_CONVERSION * K_B * T)
-        x = 1. if init_guess is None else (CRITICAL_VOLUME / init_guess)
+        x = 1.0 if init_guess is None else (CRITICAL_VOLUME / init_guess)
         y = CRITICAL_TEMPERATURE / T
-        max_value = 1. / abs(tol)
+        max_value = 1.0 / abs(tol)
         for _ in range(max_iter):
             numer = (x**2) * self.f.dfdx(x, y)
             denom = (2. * self.f.dfdx(x, y)) + (x * self.f.ddfdxx(x, y))

@@ -26,7 +26,7 @@ def data_file() -> Path:
         fp.write('# Test file\n')
         fp.write('# V T p p_err U U_err\n')
         for V, T, p, U in zip(V_range, T_range, p_range, U_range):
-            fp.write(f'{V} {T} {p} 1.0 {U} 0.001\n')
+            fp.write(f'{V} {T} {p} 5.0 {U} 0.004\n')
 
     return data_file
 

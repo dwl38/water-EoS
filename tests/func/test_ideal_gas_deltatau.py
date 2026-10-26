@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from fast_water_EoS.func.ideal_gas import IdealGas
+from fast_water_EoS.func.ideal_gas_deltatau import IdealGasDeltaTau
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def logging_dir() -> Path:
 
 def test_gerg(logging_dir: Path):
 
-    plot_file = logging_dir / 'ideal.png'
+    plot_file = logging_dir / 'ideal_deltatau.png'
     plot_file.unlink(missing_ok=True)
 
     X_MIN, X_MAX = 0.1, 3.5
@@ -23,7 +23,7 @@ def test_gerg(logging_dir: Path):
     plot_x, plot_y = np.meshgrid(np.linspace(X_MIN, X_MAX, 200), np.linspace(Y_MIN, Y_MAX, 200))
     plot_x, plot_y = plot_x.ravel(), plot_y.ravel()
 
-    ideal = IdealGas()
+    ideal = IdealGasDeltaTau()
     funcs = [[ideal.f, ideal.dfdx, ideal.dfdy], [ideal.ddfdxx, ideal.ddfdxy, ideal.ddfdyy]]
     names = [['f(x, y)', '∂f/∂x', '∂f/∂y'], ['∂²f/∂x²', '∂²f/∂x∂y', '∂²f/∂y²']]
     ranges = [[10.0, 15.0, 15.0], [75.0, 40.0, 20.0]]
@@ -57,7 +57,7 @@ def test_gerg(logging_dir: Path):
 
 def test_failures():
 
-    ideal = IdealGas()
+    ideal = IdealGasDeltaTau()
     assert len(ideal.get_params()) == 1
 
     # Warning triggered by attempting to fit fixed functional form
