@@ -108,6 +108,8 @@ class FreeEnergySurface:
             p_err: np.ndarray[tuple[int], np.dtype[float]],
             U: np.ndarray[tuple[int], np.dtype[float]],
             U_err: np.ndarray[tuple[int], np.dtype[float]],
+            Cv: np.ndarray[tuple[int], np.dtype[float]] = None,
+            Cv_err: np.ndarray[tuple[int], np.dtype[float]] = None,
         ) -> None:
         """Fits this free energy surface to a set of known values.
 
@@ -129,8 +131,16 @@ class FreeEnergySurface:
         U_err : array_like of shape (N_data,)
             Uncertainties of internal (total) energies corresponding to the
             provided temperatures and volumes, in eV.
+        Cv : array_like of shape (N_data,), optional
+            Isochoric heat capacities corresponding to the provided volumes
+            and temperatures, in eV/K. Not necessary for fitting, but improves
+            model curvature when provided.
+        Cv_err : array_like of shape (N_data,), optional
+            Uncertainties of isochoric heat capacities corresponding to the
+            provided volumes and temperatures, in eV/K. Must be provided if
+            `Cv` is provided.
         """
-        self._main_model.fit_to_data(V, T, p, p_err, U, U_err)
+        self._main_model.fit_to_data(V, T, p, p_err, U, U_err, Cv, Cv_err)
 
         if self._N_models > 0:
             rng = np.random.default_rng()
@@ -139,7 +149,12 @@ class FreeEnergySurface:
                 new_p = p + rng.normal(scale=p_err)
                 new_U = U + rng.normal(scale=U_err)
                 model = _FES(self._method, self._dof)
-                model.fit_to_data(V, T, new_p, p_err, new_U, U_err)
+                if Cv is None:
+                    model.fit_to_data(V, T, new_p, p_err, new_U, U_err)
+                else:
+                    new_Cv = Cv + rng.normal(scale=Cv_err)
+                    model.fit_to_data(V, T, new_p, p_err, new_U, U_err,
+                                      new_Cv, Cv_err)
                 self._committee.append(model)
         else:
             self._committee = None

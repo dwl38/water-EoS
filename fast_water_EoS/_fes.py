@@ -104,6 +104,8 @@ class _FES:
             p_err: np.ndarray[tuple[int], np.dtype[float]],
             U: np.ndarray[tuple[int], np.dtype[float]],
             U_err: np.ndarray[tuple[int], np.dtype[float]],
+            Cv: np.ndarray[tuple[int], np.dtype[float]] = None,
+            Cv_err: np.ndarray[tuple[int], np.dtype[float]] = None,
         ) -> None:
         """Fits this free energy surface to a set of known values.
 
@@ -125,35 +127,75 @@ class _FES:
         U_err : array_like of shape (N_data,)
             Uncertainties of internal (total) energies corresponding to the
             provided temperatures and volumes, in eV.
+        Cv : array_like of shape (N_data,), optional
+            Isochoric heat capacities corresponding to the provided volumes
+            and temperatures, in eV/K. Not necessary for fitting, but improves
+            model curvature when provided.
+        Cv_err : array_like of shape (N_data,), optional
+            Uncertainties of isochoric heat capacities corresponding to the
+            provided volumes and temperatures, in eV/K. Must be provided if
+            `Cv` is provided.
         """
         if self._fixed_preset:
             warnings.warn('Cannot fit onto fixed functional form!',
                           UserWarning)
             return None
         
-        inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err)
-        fit_V = inputs[0].astype(float).ravel()
-        fit_T = inputs[1].astype(float).ravel()
-        fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
-        sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
-        fit_U = inputs[4].astype(float).ravel()
-        sigma_U = inputs[5].astype(float).ravel()
-
-        x = CRITICAL_VOLUME / fit_V
-        y = CRITICAL_TEMPERATURE / fit_T
-        dfdx = fit_p * fit_V / (K_B * fit_T * x)
-        dfdx_err = sigma_p * fit_V / (K_B * fit_T * x)
-        dfdy = fit_U / (K_B * CRITICAL_TEMPERATURE)
-        dfdy_err = sigma_U / (K_B * CRITICAL_TEMPERATURE)
+        if Cv is None:
         
-        xx = np.concat((x, x), axis=0)
-        yy = np.concat((y, y), axis=0)
-        data = np.concat((dfdx, dfdy), axis=0)
-        data_err = np.concat((dfdx_err, dfdy_err), axis=0)
-        data_tags = np.asarray(
-            (['dfdx',] * dfdx.shape[0]) + (['dfdy',] * dfdy.shape[0]),
-            dtype='<U6',
-        )
+            inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err)
+            fit_V = inputs[0].astype(float).ravel()
+            fit_T = inputs[1].astype(float).ravel()
+            fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
+            sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
+            fit_U = inputs[4].astype(float).ravel()
+            sigma_U = inputs[5].astype(float).ravel()
+
+            x = CRITICAL_VOLUME / fit_V
+            y = CRITICAL_TEMPERATURE / fit_T
+            dfdx = fit_p * fit_V / (K_B * fit_T * x)
+            dfdx_err = np.abs(sigma_p * fit_V / (K_B * fit_T * x))
+            dfdy = fit_U / (K_B * CRITICAL_TEMPERATURE)
+            dfdy_err = np.abs(sigma_U / (K_B * CRITICAL_TEMPERATURE))
+            
+            xx = np.concat((x, x), axis=0)
+            yy = np.concat((y, y), axis=0)
+            data = np.concat((dfdx, dfdy), axis=0)
+            data_err = np.concat((dfdx_err, dfdy_err), axis=0)
+            data_tags = np.asarray(
+                (['dfdx',] * dfdx.shape[0]) + (['dfdy',] * dfdy.shape[0]),
+                dtype='<U6',
+            )
+
+        else:
+        
+            inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err, Cv, Cv_err)
+            fit_V = inputs[0].astype(float).ravel()
+            fit_T = inputs[1].astype(float).ravel()
+            fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
+            sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
+            fit_U = inputs[4].astype(float).ravel()
+            sigma_U = inputs[5].astype(float).ravel()
+            fit_Cv = inputs[6].astype(float).ravel()
+            sigma_Cv = inputs[7].astype(float).ravel()
+
+            x = CRITICAL_VOLUME / fit_V
+            y = CRITICAL_TEMPERATURE / fit_T
+            dfdx = fit_p * fit_V / (K_B * fit_T * x)
+            dfdx_err = np.abs(sigma_p * fit_V / (K_B * fit_T * x))
+            dfdy = fit_U / (K_B * CRITICAL_TEMPERATURE)
+            dfdy_err = np.abs(sigma_U / (K_B * CRITICAL_TEMPERATURE))
+            ddfdyy = -fit_Cv / (K_B * (y**2))
+            ddfdyy_err = np.abs(sigma_Cv / (K_B * (y**2)))
+            
+            xx = np.concat((x, x, x), axis=0)
+            yy = np.concat((y, y, y), axis=0)
+            data = np.concat((dfdx, dfdy, ddfdyy), axis=0)
+            data_err = np.concat((dfdx_err, dfdy_err, ddfdyy_err), axis=0)
+            data_tags = np.asarray(
+                ((['dfdx',] * dfdx.shape[0]) + (['dfdy',] * dfdy.shape[0])
+                 + (['ddfdyy',] * ddfdyy.shape[0])), dtype='<U6',
+            )
 
         if self._method == 'bspline':
             xmax = float(np.max(x) + np.min(x))
@@ -172,7 +214,7 @@ class _FES:
             self.f.fit(xx, yy, data, data_err, data_tags)
         else:
             raise RuntimeError('Internal `_method` field somehow invalid: '
-                               + self._method)
+                            + self._method)
         return None
 
 

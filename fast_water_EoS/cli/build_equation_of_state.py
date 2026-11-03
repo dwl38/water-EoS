@@ -31,26 +31,37 @@ _PROG_DESC_HEADER = '''
   - U: The internal (total) energy corresponding to V and T, in eV.
   - U_err: Uncertainties of U, in eV.
 
+ The input file may also optionally contain the following thermodynamic data:
+
+  - Cv: The isochoric heat capacity corresponding to V and T, in eV/K.
+  - U_err: Uncertainties of Cv, in eV/K.
+
  The input file should be provided in one of the following formats:
 
   - YAML or JSON file. File extension ending in ".yaml", ".yml", or ".json".
     Should represent a dictionary with all of the fields "V", "T", "p",
     "p_err", "U", and "U_err" present, which should all be lists or otherwise
-    iterables of floats of the same length.
+    iterables of floats of the same length. The fields "Cv" and "Cv_err" may
+    optionally be present.
 
   - Plaintext DAT file. File extension ending in ".dat" or ".txt". The first
     two lines will be ignored as comments, and all remaining lines will be
     interpreted as space-separated values, in the following order:
 
     >>> # Filename, title, other comments, etc.
-    >>> #   V     T     p   p_err   U   U_err
-    >>>   xxxxx xxxxx xxxxx xxxxx xxxxx xxxxx
-    >>>   xxxxx xxxxx xxxxx xxxxx xxxxx xxxxx
-    >>>    ...   ...   ...   ...   ...   ...
+    >>> #    V       T       p     p_err     U     U_err    Cv    Cv_err
+    >>>   xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx
+    >>>   xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx xxxxxxx
+    >>>     ...     ...     ...     ...     ...     ...     ...     ...
+
+    where the final two columns are optional. Note that the data fields are
+    positional, i.e. the first column is always interpreted as volume and the
+    second column as temperature etc. regardless of what the header says!
 
   - Numpy archive. File extension ending in ".npz". Should contain the fields
     "V", "T", "p", "p_err", "U", and "U_err", which are all expected to be 1D
-    ndarrays of floats of the same shape.
+    ndarrays of floats of the same shape. The fields "Cv" and "Cv_err" may
+    optionally be present.
 
 ==============================================================================
 '''
@@ -125,10 +136,10 @@ def main() -> None:
     time_start_0 = time.time()
 
     data = read_file(args.input_file)
-    V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err = data
+    V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err, Cv, Cv_err = data
     rho_obs = WATER_MASS_DENSITY_CONVERSION / V_obs
     fes = FreeEnergySurface()
-    fes.fit_to_data(V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err)
+    fes.fit_to_data(*data)
     fes.save_to_file(output_dir / 'EoS.yaml')
 
     print(f'Equation of state fitted in {elapsed_time(time_start_0)}.')
