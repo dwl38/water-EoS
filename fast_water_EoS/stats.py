@@ -67,7 +67,7 @@ def mean_and_error(
             'mean_and_error: Only one data point to average over',
             RuntimeWarning,
         )
-        return np.mean(samples), 0.0
+        return float(np.mean(samples)), 0.0
     
     if sigmas is None:
         s = np.ones(N_data)
@@ -83,7 +83,7 @@ def mean_and_error(
         )
     w_norm = w_raw / np.sum(w_raw)
 
-    mean = float(np.dot(w_norm, samples))
+    mean = np.dot(w_norm, samples)
     residuals = samples - mean
 
     if sigmas is None:
@@ -109,7 +109,7 @@ def mean_and_error(
                 stat_ineff = 1.0 + (2.0 * sum_autocorrs)
                 variance *= max(stat_ineff, 1.0)
 
-    return mean, float(np.sqrt(variance))
+    return float(mean), float(np.sqrt(variance))
 
 
 def statistical_inefficiency(
@@ -149,7 +149,7 @@ def statistical_inefficiency(
     if autocorr.shape[0] > 1:
         lags = np.arange(1, autocorr.shape[0])
         sum_autocorrs = np.sum((1.0 - (lags / N_data)) * autocorr[1:])
-        stat_ineff = 1.0 + (2.0 * sum_autocorrs)
+        stat_ineff = float(1.0 + (2.0 * sum_autocorrs))
         return max(stat_ineff, 1.0)
     return 1.0
 
@@ -166,8 +166,8 @@ def variance_and_error(
     data : array_like of shape (N_data,)
         Data to calculate the variance over. It is expected to be a 1D array
         of floats representing a uniform-interval time series; any other shape
-        shape will be flattened. The assumption of uniform time interval is
-        not relevant if `adjust_for_correlation` is False.
+        will be flattened. The assumption of uniform time interval is not
+        relevant if `adjust_for_correlation` is False.
     adjust_for_correlation : bool, optional
         Whether or not to perform the correlation correction. If deactivated,
         the provided samples are assumed to be fully uncorrelated, and the
@@ -204,7 +204,7 @@ def variance_and_error(
             'variance_and_error: Fewer than four data points',
             RuntimeWarning,
         )
-        return np.var(samples, ddof=1), 0.0
+        return float(np.var(samples, ddof=1)), 0.0
     
     var_full = np.var(samples, ddof=1)
 
@@ -234,3 +234,110 @@ def variance_and_error(
     var_err = np.sqrt((N_blocks - 1) * np.var(jackknifes))
 
     return float(var_full), float(var_err)
+
+
+def covariance_and_error(
+        dataA: np.ndarray,
+        dataB: np.ndarray,
+        adjust_for_correlation: bool = True,
+    ) -> tuple[float, float]:
+    """Finds the covariance, and standard error of the covariance, given two
+    series of data of the same length. The standard error is estimated using a
+    jackknife.
+
+    Parameters
+    ----------
+    dataA : array_like of shape (N_data,)
+        Data series A to calculate the covariance over. It is expected to be a
+        1D array of floats representing a uniform-interval time series; any
+        other shape will be flattened. The assumption of uniform time interval
+        is not relevant if `adjust_for_correlation` is False.
+    dataB : array_like of shape (N_data,)
+        Data series B to calculate the covariance over. It is expected to be a
+        1D array of floats representing a uniform-interval time series, drawn
+        from the same instants as `dataA`; any other shape will be flattened.
+        Must have the same length as `dataA`.
+    adjust_for_correlation : bool, optional
+        Whether or not to perform the correlation correction. If deactivated,
+        the provided samples are assumed to be fully uncorrelated, and the
+        reported error will be based on simple jackknifing of the samples. If
+        activated, which is the default behavior, the jackknifing procedure
+        will be adjusted so as to subsample blocks longer than the statistical
+        inefficiency.
+    
+    Returns
+    -------
+    covar : float
+        The samples' covariance.
+    covar_error : float
+        The standard error of the samples' covariance.
+
+    Notes
+    -----
+    For two time series `A(t)` and `B(t)`, the time-averaged co-fluctuation
+    width `<ΔA⋅ΔB>` and its error can be found using the default settings:
+    >>> AB_fluc, AB_fluc_err = covariance_and_error(At, Bt, True)
+    """
+    sampleA = np.asarray(dataA, dtype=float).ravel()
+    sampleB = np.asarray(dataB, dtype=float).ravel()
+    if sampleA.shape != sampleB.shape:
+        raise ValueError(
+            'covariance_and_error: Length mismatch between dataA and dataB '
+            f'({sampleA.shape[0]} vs {sampleB.shape[0]})'
+        )
+    N_data = sampleA.shape[0]
+    if N_data < 1:
+        raise ValueError('covariance_and_error: Empty arrays')
+    if N_data == 1:
+        warnings.warn(
+            'covariance_and_error: Only one data point',
+            RuntimeWarning,
+        )
+        return 0.0, 0.0
+    
+    def make_covar(At, Bt):
+        meanA = np.mean(At)
+        meanB = np.mean(Bt)
+        return np.sum((At - meanA) * (Bt - meanB)) / (At.shape[0] - 1)
+    
+    if N_data < 4:
+        warnings.warn(
+            'covariance_and_error: Fewer than four data points',
+            RuntimeWarning,
+        )
+        return float(make_covar(sampleA, sampleB)), 0.0
+
+    covar_full = make_covar(sampleA, sampleB)
+
+    if adjust_for_correlation:
+        target_block_length = max(
+            round(5.0 * statistical_inefficiency(sampleA)),
+            round(5.0 * statistical_inefficiency(sampleB)),
+        )
+        N_blocks = N_data // int(target_block_length)
+        if N_blocks < 4:
+            warnings.warn(
+                'covariance_and_error: Too few blocks found',
+                RuntimeWarning,
+            )
+            N_blocks = 4
+        block_length = N_data // N_blocks
+        remainder = N_data % N_blocks
+        idxs, i = list(), 0
+        for _ in range(remainder):
+            idxs.append(slice(i, i + block_length + 1, 1))
+            i += block_length + 1
+        for _ in range(N_blocks - remainder):
+            idxs.append(slice(i, i + block_length, 1))
+            i += block_length
+    else:
+        N_blocks = N_data
+        idxs = [slice(i, i + 1, 1) for i in range(N_data)]
+    
+    jackknifes = [
+        make_covar(np.delete(sampleA, idx), np.delete(sampleB, idx))
+        for idx in idxs
+    ]
+    covar_err = np.sqrt((N_blocks - 1) * np.var(jackknifes))
+
+    return float(covar_full), float(covar_err)

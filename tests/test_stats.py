@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from fast_water_EoS.stats import mean_and_error, statistical_inefficiency, variance_and_error
+from fast_water_EoS.stats import statistical_inefficiency, mean_and_error, variance_and_error, covariance_and_error
 
 
 @pytest.fixture
@@ -16,6 +16,13 @@ def ar1(rng: np.random.Generator, n: int, phi: float) -> np.ndarray:
     for i in range(1, n):
         x[i] = (phi * x[i-1]) + noise[i]
     return x
+
+
+def correlated_pair(rng: np.random.Generator, n: int, phi: float, rho: float):
+    # Two autoregressive series with nonzero covariance
+    a = ar1(rng, n, phi)
+    b = (rho * a) + (np.sqrt(1.0 - rho**2) * ar1(rng, n, phi))
+    return a, b
 
 
 # -------------------------------------------------------------------------------------------------
@@ -199,8 +206,7 @@ def test_variance_too_few_blocks_warns(rng):
 
 
 def test_variance_uneven_blocks(rng):
-    # Length not divisible by the number of blocks exercises the remainder
-    # branch that builds slightly longer leading blocks
+    # Length not divisible by the number of blocks exercises the remainder branch
     x = rng.standard_normal(1003)
     var, err = variance_and_error(x, adjust_for_correlation=True)
     assert var == pytest.approx(np.var(x, ddof=1), rel=1e-12)
@@ -225,3 +231,132 @@ def test_variance_shift_and_scale(rng):
     var_scale, err_scale = variance_and_error(a * x)
     assert var_scale == pytest.approx(a**2 * var, rel=1e-9)
     assert err_scale == pytest.approx(a**2 * err, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# covariance_and_error
+
+
+def test_covariance_matches_numpy(rng):
+    a, b = correlated_pair(rng, 400, 0.5, 0.6)
+    for adjust in (True, False):
+        cov, err = covariance_and_error(a, b, adjust_for_correlation=adjust)
+        assert cov == pytest.approx(np.cov(a, b)[0, 1], rel=1e-12)
+        assert np.isfinite(err) and err > 0.0
+        assert isinstance(cov, float) and isinstance(err, float)
+
+
+def test_covariance_reduces_to_variance(rng):
+    x = ar1(rng, 600, 0.6)
+    for adjust in (True, False):
+        cov, cov_err = covariance_and_error(x, x, adjust_for_correlation=adjust)
+        var, var_err = variance_and_error(x, adjust_for_correlation=adjust)
+        assert cov == pytest.approx(var, rel=1e-10)
+        assert cov_err == pytest.approx(var_err, rel=1e-10)
+
+
+def test_covariance_symmetric(rng):
+    a, b = correlated_pair(rng, 500, 0.7, 0.5)
+    assert covariance_and_error(a, b) == pytest.approx(covariance_and_error(b, a), rel=1e-12)
+
+
+def test_covariance_error_uncorrelated_gaussian(rng):
+    n, rho = 3000, 0.6
+    a = rng.standard_normal(n)
+    b = (rho * a) + (np.sqrt(1.0 - rho**2) * rng.standard_normal(n))
+    cov, err = covariance_and_error(a, b, adjust_for_correlation=False)
+    assert cov == pytest.approx(rho, abs=4.0 * err)
+    # Var[s_ab] = (1 + rho^2) / (n - 1) for unit-variance bivariate Gaussian samples
+    assert err == pytest.approx(np.sqrt((1.0 + rho**2) / (n - 1)), rel=0.25)
+
+
+def test_covariance_independent_series_consistent_with_zero(rng):
+    a = rng.standard_normal(2000)
+    b = rng.standard_normal(2000)
+    cov, err = covariance_and_error(a, b, adjust_for_correlation=False)
+    assert abs(cov) < 4.0 * err
+
+
+def test_covariance_error_larger_with_correlation_adjustment(rng):
+    a, b = correlated_pair(rng, 5000, 0.9, 0.6)
+    _, naive = covariance_and_error(a, b, adjust_for_correlation=False)
+    _, adjusted = covariance_and_error(a, b, adjust_for_correlation=True)
+    assert adjusted > naive
+
+
+def test_covariance_single_point_warns():
+    with pytest.warns(RuntimeWarning, match='one data point'):
+        result = covariance_and_error(np.array([1.0]), np.array([2.0]))
+    assert result == (0.0, 0.0)
+
+
+@pytest.mark.parametrize('n', [2, 3])
+def test_covariance_fewer_than_four_points_warns(n):
+    a = np.array([1.0, 2.5, 4.0])[:n]
+    b = np.array([0.5, -1.0, 2.0])[:n]
+    with pytest.warns(RuntimeWarning, match='Fewer than four'):
+        cov, err = covariance_and_error(a, b)
+    assert cov == pytest.approx(np.cov(a, b)[0, 1])
+    assert err == 0.0
+
+
+def test_covariance_too_few_blocks_warns(rng):
+    a, b = correlated_pair(rng, 30, 0.9, 0.5)
+    with pytest.warns(RuntimeWarning, match='Too few blocks'):
+        cov, err = covariance_and_error(a, b)
+    assert np.isfinite(cov) and np.isfinite(err) and err > 0.0
+
+
+def test_covariance_uneven_blocks(rng):
+    # Length not divisible by the number of blocks exercises the remainder branch
+    a = rng.standard_normal(1003)
+    b = a + rng.standard_normal(1003)
+    cov, err = covariance_and_error(a, b, adjust_for_correlation=True)
+    assert cov == pytest.approx(np.cov(a, b)[0, 1], rel=1e-12)
+    assert np.isfinite(err) and err > 0.0
+
+
+def test_covariance_empty_raises():
+    with pytest.raises(ValueError, match='Empty'):
+        covariance_and_error(np.array([]), np.array([]))
+
+
+@pytest.mark.parametrize('nA, nB', [(10, 9), (100, 1), (1, 100), (0, 5)])
+def test_covariance_length_mismatch_raises(nA, nB):
+    with pytest.raises(ValueError, match='mismatch'):
+        covariance_and_error(np.zeros(nA), np.zeros(nB))
+
+
+def test_covariance_constant_data(rng):
+    cov, err = covariance_and_error(np.full(100, 2.0), rng.standard_normal(100))
+    assert cov == pytest.approx(0.0, abs=1e-12)
+    assert np.isfinite(err)
+
+
+def test_covariance_shift_and_scale(rng):
+    a, b = correlated_pair(rng, 1000, 0.6, 0.5)
+    cov, err = covariance_and_error(a, b)
+
+    cov_shift, err_shift = covariance_and_error(a + 1000.0, b - 500.0)
+    assert cov_shift == pytest.approx(cov, rel=1e-6)
+    assert err_shift == pytest.approx(err, rel=1e-6)
+
+    sa, sb = 3.0, -2.0
+    cov_scale, err_scale = covariance_and_error(sa * a, sb * b)
+    assert cov_scale == pytest.approx(sa * sb * cov, rel=1e-9)
+    assert err_scale == pytest.approx(abs(sa * sb) * err, rel=1e-9)
+
+
+def test_covariance_flattens_and_accepts_lists(rng):
+    a, b = correlated_pair(rng, 1000, 0.6, 0.5)
+    expected = covariance_and_error(a, b)
+    assert covariance_and_error(a.reshape(10, 100), b.reshape(100, 10)) == expected
+    assert covariance_and_error(a.tolist(), b.tolist()) == expected
+
+
+def test_covariance_does_not_mutate_input(rng):
+    a, b = correlated_pair(rng, 500, 0.7, 0.5)
+    a_copy, b_copy = a.copy(), b.copy()
+    covariance_and_error(a, b)
+    np.testing.assert_array_equal(a, a_copy)
+    np.testing.assert_array_equal(b, b_copy)
