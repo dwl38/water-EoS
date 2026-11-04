@@ -34,7 +34,7 @@ _PROG_DESC_HEADER = '''
  The input file may also optionally contain the following thermodynamic data:
 
   - Cv: The isochoric heat capacity corresponding to V and T, in eV/K.
-  - U_err: Uncertainties of Cv, in eV/K.
+  - Cv_err: Uncertainties of Cv, in eV/K.
 
  The input file should be provided in one of the following formats:
 
