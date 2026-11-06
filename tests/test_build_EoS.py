@@ -1,4 +1,5 @@
 import sys
+import shutil
 import pytest
 import numpy as np
 import fast_water_EoS.cli.build_equation_of_state
@@ -9,6 +10,8 @@ from fast_water_EoS.free_energy_surface import FreeEnergySurface
 @pytest.fixture
 def data_file() -> Path:
     output_dir = Path('test_logs/build_EoS')
+    if output_dir.is_dir():
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     V_range = np.linspace(25.0, 33.4, 6)
@@ -34,6 +37,8 @@ def data_file() -> Path:
 @pytest.fixture
 def data_file_w_Cv() -> Path:
     output_dir = Path('test_logs/build_EoS_w_Cv')
+    if output_dir.is_dir():
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     V_range = np.linspace(25.0, 33.4, 6)
@@ -70,12 +75,18 @@ def test_build_EoS_w_Cv(data_file_w_Cv: Path, monkeypatch):
 
 
 def test_EoS_for_spce(monkeypatch):
+    output_dir = Path('test_logs/EoS_spce')
+    if output_dir.is_dir():
+        shutil.rmtree(output_dir)
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['build_equation_of_state', 'tests/data_spce.dat', '-o', 'test_logs/EoS_spce'])
         fast_water_EoS.cli.build_equation_of_state.main()
 
 
 def test_EoS_for_spcfw(monkeypatch):
+    output_dir = Path('test_logs/EoS_spcfw')
+    if output_dir.is_dir():
+        shutil.rmtree(output_dir)
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['build_equation_of_state', 'tests/data_spcfw.dat', '-o', 'test_logs/EoS_spcfw'])
         fast_water_EoS.cli.build_equation_of_state.main()
@@ -83,6 +94,9 @@ def test_EoS_for_spcfw(monkeypatch):
 
 
 def test_EoS_for_ccsdt(monkeypatch):
+    output_dir = Path('test_logs/EoS_ccsdt')
+    if output_dir.is_dir():
+        shutil.rmtree(output_dir)
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['build_equation_of_state', 'tests/data_ccsdt.dat', '-o', 'test_logs/EoS_ccsdt'])
         fast_water_EoS.cli.build_equation_of_state.main()
