@@ -69,3 +69,23 @@ def test_build_EoS_w_Cv(data_file_w_Cv: Path, monkeypatch):
         fast_water_EoS.cli.build_equation_of_state.main()
 
 
+def test_EoS_for_spce(monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(sys, 'argv', ['build_equation_of_state', 'tests/data_spce.dat', '-o', 'test_logs/EoS_spce'])
+        fast_water_EoS.cli.build_equation_of_state.main()
+
+
+def test_EoS_for_spcfw(monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(sys, 'argv', ['build_equation_of_state', 'tests/data_spcfw.dat', '-o', 'test_logs/EoS_spcfw'])
+        fast_water_EoS.cli.build_equation_of_state.main()
+
+
+
+def test_EoS_for_ccsdt(monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(sys, 'argv', ['build_equation_of_state', 'tests/data_ccsdt.dat', '-o', 'test_logs/EoS_ccsdt'])
+        fast_water_EoS.cli.build_equation_of_state.main()
+
+
+
