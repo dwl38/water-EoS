@@ -136,7 +136,7 @@ def main() -> None:
     time_start_0 = time.time()
 
     data = read_file(args.input_file)
-    V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err, Cv, Cv_err = data
+    V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err, Cv_obs, Cv_obs_err = data
     rho_obs = WATER_MASS_DENSITY_CONVERSION / V_obs
     fes = FreeEnergySurface()
     fes.fit_to_data(*data)
@@ -234,6 +234,50 @@ def main() -> None:
     fig.savefig(output_dir / 'pressure.png', **_SAVEFIG_PARAMS)
 
     print(f'Pressure surface plotted in {elapsed_time(time_start_1)}.')
+
+    #-------------------------------------------------------------------------
+    # Plot heat capacity surface
+
+    time_start_1 = time.time()
+
+    if Cv_obs is not None:
+
+        mean_surface = fes.heat_capacity(V_plot, T_plot)
+        unc_surface = fes.heat_capacity_unc(V_plot, T_plot)
+        vmin = min(np.min(mean_surface), np.min(Cv_obs))
+        vmax = max(np.max(mean_surface), np.max(Cv_obs))
+        levels = np.linspace(vmin, vmax, _N_PLOT_POINTS)
+        errmax = max(np.max(unc_surface), np.max(Cv_obs_err))
+        errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
+
+        deviations = Cv_obs - fes.heat_capacity(V_obs, T_obs)
+        mae = SI_prefix(np.mean(np.abs(deviations)), 'eV/K')
+        rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'eV/K')
+
+        fig, ax = plt.subplots(1, 2)
+        fig.set_size_inches(12.0, 4.0)
+        art = ax[0].tricontourf(T_plot, rho_plot, mean_surface, levels=levels,
+                                cmap='viridis', vmin=vmin, vmax=vmax)
+        ax[0].scatter(T_obs, rho_obs, c=Cv_obs, cmap='viridis', vmin=vmin,
+                      vmax=vmax, ec='white')
+        fig.colorbar(art, ax=ax[0], label=r'$C_V(T,\rho)\;[\text{eV}/\text{K}]$')
+        art = ax[1].tricontourf(T_plot, rho_plot, unc_surface, levels=errlevels,
+                                cmap='Reds', vmin=0.0, vmax=errmax)
+        ax[1].scatter(T_obs, rho_obs, c=Cv_obs_err, cmap='Reds', vmin=0.0,
+                      vmax=errmax, ec='b')
+        fig.colorbar(art, ax=ax[1], label=r'$\sigma_{C_V}(T,\rho)\;[\text{eV}/\text{K}]$')
+        for i in range(2):
+            ax[i].set_xlim(*_TEMP_RANGE)
+            ax[i].set_ylim(*_DENSITY_RANGE)
+            ax[i].set_xlabel(r'$T\;[\text{K}]$')
+            ax[i].set_ylabel(r'$\rho\;[\text{kg}/\text{m}^3]$')
+        ax[0].set_title(f'Fitted (MAE = {mae}, RMSE = {rmse})')
+        ax[1].set_title(f'Uncertainty')
+        fig.suptitle('Heat capacity against temperature and density')
+        fig.tight_layout()
+        fig.savefig(output_dir / 'heat-capacity.png', **_SAVEFIG_PARAMS)
+
+        print(f'Heat capacity surface plotted in {elapsed_time(time_start_1)}.')
 
     #-------------------------------------------------------------------------
     # Plot uncertainty surface

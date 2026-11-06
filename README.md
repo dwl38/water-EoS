@@ -57,5 +57,6 @@ after which thermodynamic properties can be calculated using `FreeEnergySurface`
 ## Changelog
 
 ```
+v1.0.1: Improved fit stability by *not* double-/triple-counting provided data points; also added ability to plot provided heat capacity data in `build_equation_of_state`
 v1.0.0: Initial version
 ```

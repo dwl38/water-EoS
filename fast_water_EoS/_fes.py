@@ -200,9 +200,15 @@ class _FES:
         if self._method == 'bspline':
             xmax = float(np.max(x) + np.min(x))
             ymax = float(np.max(y) + np.min(y))
+            N_points = x.shape[0]
+            nx = int(round(np.sqrt(N_points * xmax / ymax)))
+            ny = int(round(ymax * nx / xmax))
             self.f = Additive(
                 [IdealGas, BSpline],
-                [{'dof': self._dof}, {'extent': (0.0, xmax, 0.0, ymax)}],
+                [
+                    {'dof': self._dof},
+                    {'extent': (0.0, xmax, 0.0, ymax), 'n': (nx, ny)},
+                ],
             )
             self.f.fit(xx, yy, data, data_err, data_tags)
         elif self._method == 'poly':
