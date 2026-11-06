@@ -1,6 +1,8 @@
 # fast-water-EoS
 Modelling liquid (and gaseous) water's thermodynamic properties using free energy interpolants. This is achieved by fitting regularized cardinal B-splines to the dimensionless free energy; see `explanation.pdf`.
 
+## How to use
+
 The repository can be installed as a Python package using the following:
 ```
 git clone --depth 1 https://github.com/dwl38/water-EoS.git
@@ -52,3 +54,8 @@ fes.load_from_file('EoS.yaml')
 
 after which thermodynamic properties can be calculated using `FreeEnergySurface`'s methods, e.g. for your own custom analysis/plotting scripts.
 
+## Changelog
+
+```
+v1.0.0: Initial version
+```
