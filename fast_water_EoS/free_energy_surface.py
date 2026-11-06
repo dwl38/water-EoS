@@ -5,9 +5,11 @@ thermodynamic state points.
 """
 
 import yaml
+import warnings
 import numpy as np
 from typing import Literal
 from numpy._typing import _AnyShape
+from scipy.spatial import ConvexHull, QhullError
 from ._fes import _FES
 
 
@@ -64,6 +66,13 @@ class FreeEnergySurface:
         Number of internal models for bootstrapping estimation of flexible
         model uncertainties. This parameter is ignored for fixed presets.
         Defaults to 100.
+    extrapolate : bool, optional
+        Whether or not to enable extrapolation, for flexible models; defaults
+        to False. Evaluation of any observable outside the convex hull of the
+        fitting data will return NaN if extrapolation is disabled. (Note that,
+        even if `extrapolate` is set to True, the extrapolated observables
+        are not physically meaningful for flexible models!) This parameter is
+        ignored for fixed presets.
     """
 
     def __init__(
@@ -71,33 +80,36 @@ class FreeEnergySurface:
             method: Literal['bspline', 'poly', 'iapws', 'gerg'] = None,
             dof: int | float = 6,
             N_models: int = 100,
+            extrapolate: bool = False,
         ):
         if method is None or method == 'bspline':
             self._main_model = _FES('bspline', dof=dof)
-            self._committee = None
             self._N_models = int(N_models)
             self._method = 'bspline'
             self._dof = float(dof)
+            self._extrapolate = bool(extrapolate)
         elif method == 'poly':
             self._main_model = _FES('poly', dof=dof)
-            self._committee = None
             self._N_models = int(N_models)
             self._method = 'poly'
             self._dof = float(dof)
+            self._extrapolate = bool(extrapolate)
         elif method == 'iapws':
             self._main_model = _FES('iapws')
-            self._committee = None
             self._N_models = 0
             self._method = 'iapws'
             self._dof = 6.0
+            self._extrapolate = True
         elif method == 'gerg':
             self._main_model = _FES('gerg')
-            self._committee = None
             self._N_models = 0
             self._method = 'gerg'
             self._dof = 6.0
+            self._extrapolate = True
         else:
             raise RuntimeError(f'method "{method}" not recognized!')
+        self._committee = None
+        self._convex_hull_eqns = None
     
 
     def fit_to_data(
@@ -141,6 +153,16 @@ class FreeEnergySurface:
             `Cv` is provided.
         """
         self._main_model.fit_to_data(V, T, p, p_err, U, U_err, Cv, Cv_err)
+
+        if not self._extrapolate:
+            V_cast, T_cast = np.broadcast_arrays(V, T)
+            data = np.column_stack([V_cast.ravel(), T_cast.ravel()])
+            try:
+                self._convex_hull_eqns = ConvexHull(data).equations
+            except QhullError:
+                warnings.warn('Failed to construct convex hull, extrapolation'
+                              ' defaulted to true', UserWarning)
+                self._extrapolate = True
 
         if self._N_models > 0:
             rng = np.random.default_rng()
@@ -195,6 +217,15 @@ class FreeEnergySurface:
             self._dof = 6.0
         else:
             raise RuntimeError(f'method "{params['method']}" not recognized!')
+        if 'extrapolate' in params:
+            self._extrapolate = bool(params['extrapolate'])
+            if 'convex_hull_eqns' in params:
+                self._convex_hull_eqns = np.asarray(
+                    params['convex_hull_eqns'], dtype=float,
+                )
+        else:
+            self._extrapolate = True
+            self._convex_hull_eqns = None
 
 
     def save_to_file(self, file):
@@ -205,7 +236,10 @@ class FreeEnergySurface:
         file : file, str, or pathlib.Path
             The file to save to.
         """
-        params = {'method': str(self._method)}
+        params = {
+            'method': str(self._method),
+            'extrapolate': bool(self._extrapolate),
+        }
         if self._method in ('bspline', 'poly'):
             params['N_models'] = int(self._N_models)
             params['dof'] = float(self._dof)
@@ -213,8 +247,19 @@ class FreeEnergySurface:
             if self._committee is not None:
                 params['committee'] = [model.save_to_dict()
                                        for model in self._committee]
+        if not self._extrapolate and self._convex_hull_eqns is not None:
+            params['convex_hull_eqns'] = self._convex_hull_eqns.tolist()
         with open(file, 'w') as fp:
             yaml.safe_dump(params, fp)
+
+
+    def _mask_inside_convex_hull(self, V, T):
+        if self._extrapolate or self._convex_hull_eqns is None:
+            return np.full_like(V, True)
+        points = np.column_stack([V, T])
+        signed_dist = ((points @ self._convex_hull_eqns[:,:-1].T)
+                       + self._convex_hull_eqns[:,-1])
+        return np.all(signed_dist < 1.0e-12, axis=1)
 
 
     def free_energy(
@@ -228,7 +273,14 @@ class FreeEnergySurface:
         Note that the absolute value of free energy is meaningless, as the
         underlying partition function is arbitrary up to a multiplicative
         constant; only differences in free energies are meaningful."""
-        return self._main_model.free_energy(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.free_energy(V_cast, T_cast),
+            np.nan,
+        )
         
 
     def free_energy_unc(
@@ -242,11 +294,15 @@ class FreeEnergySurface:
         Note that the absolute value of free energy is meaningless, as the
         underlying partition function is arbitrary up to a multiplicative
         constant; only differences in free energies are meaningful."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.free_energy(V, T) for model in self._committee]
-        results.append(self._main_model.free_energy(V, T))
-        return np.std(results, axis=0)
+            return np.zeros_like(V_cast)
+        results = [model.free_energy(V_cast, T_cast)
+                   for model in self._committee]
+        results.append(self._main_model.free_energy(V_cast, T_cast))
+        return np.where(mask, np.std(results, axis=0), np.nan)
 
 
     def internal_energy(
@@ -256,7 +312,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the internal energy `U = F + TS`, in units of eV, at the
         specified volume and temperature."""
-        return self._main_model.internal_energy(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.internal_energy(V_cast, T_cast),
+            np.nan,
+        )
 
 
     def internal_energy_unc(
@@ -266,11 +329,15 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the uncertainty of the internal energy `U = F + TS`, in
         units of eV, at the specified volume and temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.internal_energy(V, T) for model in self._committee]
-        results.append(self._main_model.internal_energy(V, T))
-        return np.std(results, axis=0)
+            return np.zeros_like(V_cast)
+        results = [model.internal_energy(V_cast, T_cast)
+                   for model in self._committee]
+        results.append(self._main_model.internal_energy(V_cast, T_cast))
+        return np.where(mask, np.std(results, axis=0), np.nan)
 
 
     def entropy(
@@ -284,7 +351,14 @@ class FreeEnergySurface:
         Note that the absolute value of entropy is meaningless, as the
         underlying partition function is arbitrary up to a multiplicative
         constant; only differences in entropies are meaningful."""
-        return self._main_model.entropy(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.entropy(V_cast, T_cast),
+            np.nan,
+        )
 
 
     def entropy_unc(
@@ -298,11 +372,15 @@ class FreeEnergySurface:
         Note that the absolute value of entropy is meaningless, as the
         underlying partition function is arbitrary up to a multiplicative
         constant; only differences in entropies are meaningful."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.entropy(V, T) for model in self._committee]
-        results.append(self._main_model.entropy(V, T))
-        return np.std(results, axis=0)
+            return np.zeros_like(V_cast)
+        results = [model.entropy(V_cast, T_cast)
+                   for model in self._committee]
+        results.append(self._main_model.entropy(V_cast, T_cast))
+        return np.where(mask, np.std(results, axis=0), np.nan)
     
 
     def pressure(
@@ -312,7 +390,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the pressure `p = -∂F/∂V`, in units of bar, at the
         specified volume and temperature."""
-        return self._main_model.pressure(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.pressure(V_cast, T_cast),
+            np.nan,
+        )
     
 
     def pressure_unc(
@@ -322,11 +407,15 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the uncertainty of the pressure `p = -∂F/∂V`, in units of
         bar, at the specified volume and temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.pressure(V, T) for model in self._committee]
-        results.append(self._main_model.pressure(V, T))
-        return np.std(results, axis=0)
+            return np.zeros_like(V_cast)
+        results = [model.pressure(V_cast, T_cast)
+                   for model in self._committee]
+        results.append(self._main_model.pressure(V_cast, T_cast))
+        return np.where(mask, np.std(results, axis=0), np.nan)
 
 
     def heat_capacity(
@@ -336,7 +425,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the isochoric heat capacity `C = ∂U/∂T`, in units of eV/K,
         at the specified volume and temperature."""
-        return self._main_model.heat_capacity(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.heat_capacity(V_cast, T_cast),
+            np.nan,
+        )
 
 
     def heat_capacity_unc(
@@ -346,11 +442,15 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the uncertainty of the isochoric heat capacity `C = ∂U/∂T`,
         in units of eV/K, at the specified volume and temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.heat_capacity(V, T) for model in self._committee]
-        results.append(self._main_model.heat_capacity(V, T))
-        return np.std(results, axis=0)
+            return np.zeros_like(V_cast)
+        results = [model.heat_capacity(V_cast, T_cast)
+                   for model in self._committee]
+        results.append(self._main_model.heat_capacity(V_cast, T_cast))
+        return np.where(mask, np.std(results, axis=0), np.nan)
     
 
     def compressibility(
@@ -360,7 +460,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the isothermal compressibility `β = -(∂V/∂p) / V`, in units
         of bar⁻¹, at the specified volume and temperature."""
-        return self._main_model.compressibility(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.compressibility(V_cast, T_cast),
+            np.nan,
+        )
     
 
     def compressibility_unc(
@@ -371,11 +478,15 @@ class FreeEnergySurface:
         """Returns the uncertainty of the isothermal compressibility `β =
         -(∂V/∂p) / V`, in units of bar⁻¹, at the specified volume and
         temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.compressibility(V, T) for model in self._committee]
-        results.append(self._main_model.compressibility(V, T))
-        return np.std(results, axis=0)
+            return np.zeros_like(V_cast)
+        results = [model.compressibility(V_cast, T_cast)
+                   for model in self._committee]
+        results.append(self._main_model.compressibility(V_cast, T_cast))
+        return np.where(mask, np.std(results, axis=0), np.nan)
 
 
     def thermal_pressure_coefficient(
@@ -385,7 +496,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the isochoric thermal pressure coefficient `γ = ∂p/∂T`, in
         units of bar/K, at the specified volume and temperature."""
-        return self._main_model.thermal_pressure_coefficient(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.thermal_pressure_coefficient(V_cast, T_cast),
+            np.nan,
+        )
 
 
     def thermal_pressure_coefficient_unc(
@@ -396,12 +514,17 @@ class FreeEnergySurface:
         """Returns the uncertainty of the isochoric thermal pressure
         coefficient `γ = ∂p/∂T`, in units of bar/K, at the specified volume
         and temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.thermal_pressure_coefficient(V, T)
+            return np.zeros_like(V_cast)
+        results = [model.thermal_pressure_coefficient(V_cast, T_cast)
                    for model in self._committee]
-        results.append(self._main_model.thermal_pressure_coefficient(V, T))
-        return np.std(results, axis=0)
+        results.append(
+            self._main_model.thermal_pressure_coefficient(V_cast, T_cast),
+        )
+        return np.where(mask, np.std(results, axis=0), np.nan)
 
 
     def thermal_expansion_coefficient(
@@ -411,7 +534,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the isobaric thermal expansion coefficient `α = (∂V/∂T)
         / V`, in units of K⁻¹, at the specified volume and temperature."""
-        return self._main_model.thermal_expansion_coefficient(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.thermal_expansion_coefficient(V_cast, T_cast),
+            np.nan,
+        )
 
 
     def thermal_expansion_coefficient_unc(
@@ -422,12 +552,17 @@ class FreeEnergySurface:
         """Returns the uncertainty of the isobaric thermal expansion
         coefficient `α = (∂V/∂T) / V`, in units of K⁻¹, at the specified
         volume and temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.thermal_expansion_coefficient(V, T)
+            return np.zeros_like(V_cast)
+        results = [model.thermal_expansion_coefficient(V_cast, T_cast)
                    for model in self._committee]
-        results.append(self._main_model.thermal_expansion_coefficient(V, T))
-        return np.std(results, axis=0)
+        results.append(
+            self._main_model.thermal_expansion_coefficient(V_cast, T_cast),
+        )
+        return np.where(mask, np.std(results, axis=0), np.nan)
 
 
     def isobaric_heat_capacity(
@@ -437,7 +572,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the isobaric heat capacity, in units of eV/K, at the
         specified volume and temperature."""
-        return self._main_model.isobaric_heat_capacity(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.isobaric_heat_capacity(V_cast, T_cast),
+            np.nan,
+        )
 
 
     def isobaric_heat_capacity_unc(
@@ -447,12 +589,17 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the uncertainty of the isobaric heat capacity, in units of
         eV/K, at the specified volume and temperature."""
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.isobaric_heat_capacity(V, T)
+            return np.zeros_like(V_cast)
+        results = [model.isobaric_heat_capacity(V_cast, T_cast)
                    for model in self._committee]
-        results.append(self._main_model.isobaric_heat_capacity(V, T))
-        return np.std(results, axis=0)
+        results.append(
+            self._main_model.isobaric_heat_capacity(V_cast, T_cast),
+        )
+        return np.where(mask, np.std(results, axis=0), np.nan)
     
 
     def isentropic_bulk_modulus(
@@ -462,7 +609,14 @@ class FreeEnergySurface:
         ) -> np.ndarray[_AnyShape, np.dtype[float]] | float:
         """Returns the isentropic bulk modulus `K = -V(∂p/∂V)`, in units of
         bar, at the specified volume and temperature."""
-        return self._main_model.isentropic_bulk_modulus(V, T)
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
+        return np.where(
+            mask,
+            self._main_model.isentropic_bulk_modulus(V_cast, T_cast),
+            np.nan,
+        )
     
 
     def isentropic_bulk_modulus_unc(
@@ -473,12 +627,17 @@ class FreeEnergySurface:
         """Returns the uncertainty of the isentropic bulk modulus `K =
         -V(∂p/∂V)`, in units of bar, at the specified volume and temperature.
         """
+        V_cast, T_cast = np.broadcast_arrays(V, T)
+        V_cast, T_cast = V_cast.ravel(), T_cast.ravel()
+        mask = self._mask_inside_convex_hull(V_cast, T_cast)
         if self._committee is None:
-            return np.zeros_like(V)
-        results = [model.isentropic_bulk_modulus(V, T)
+            return np.zeros_like(V_cast)
+        results = [model.isentropic_bulk_modulus(V_cast, T_cast)
                    for model in self._committee]
-        results.append(self._main_model.isentropic_bulk_modulus(V, T))
-        return np.std(results, axis=0)
+        results.append(
+            self._main_model.isentropic_bulk_modulus(V_cast, T_cast),
+        )
+        return np.where(mask, np.std(results, axis=0), np.nan)
     
 
     def volume_at_p(
@@ -520,5 +679,13 @@ class FreeEnergySurface:
         >>> compressibility = fes.compressibility(vol, T)
         >>> vol_unc = abs(vol * compressibility * p_unc)
         """
-        return self._main_model.volume_at_p(p, T, init_guess=init_guess,
-                                            tol=tol, max_iter=max_iter)
+        result = self._main_model.volume_at_p(p, T, init_guess=init_guess,
+                                              tol=tol, max_iter=max_iter)
+        if self._extrapolate or self._convex_hull_eqns is None:
+            return result
+        point = np.asarray([result, T], dtype=float)
+        signed_dist = ((point @ self._convex_hull_eqns[:,:-1].T)
+                       + self._convex_hull_eqns[:,-1])
+        if np.max(signed_dist) < 1.0e-12:
+            return result
+        return np.nan

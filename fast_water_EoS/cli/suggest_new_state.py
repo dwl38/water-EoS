@@ -99,15 +99,17 @@ def main() -> None:
                      / (K_B * T_range))
         unc_surface = np.sqrt((xdfdx_unc**2) + (ydfdy_unc**2))
 
-        idx = np.argmax(unc_surface)
-        maximal_unc_V, maximal_unc_T = V_range[idx], T_range[idx]
+        mask = np.logical_not(np.isnan(unc_surface))
+
+        idx = np.argmax(unc_surface[mask])
+        maximal_unc_V, maximal_unc_T = V_range[mask][idx], T_range[mask][idx]
         V_min = maximal_unc_V - (2.0 * V_delta)
         V_max = maximal_unc_V + (2.0 * V_delta)
         T_min = maximal_unc_T - (2.0 * T_delta)
         T_max = maximal_unc_T + (2.0 * T_delta)
 
-    delta_p = fes.pressure_unc(maximal_unc_V, maximal_unc_T)
-    delta_U = fes.internal_energy_unc(maximal_unc_V, maximal_unc_T)
+    delta_p = fes.pressure_unc(maximal_unc_V, maximal_unc_T)[0]
+    delta_U = fes.internal_energy_unc(maximal_unc_V, maximal_unc_T)[0]
     xdfdx_unc = (delta_p * maximal_unc_V
                  / (PRESSURE_CONVERSION * K_B * maximal_unc_T))
     ydfdy_unc = delta_U / (K_B * maximal_unc_T)

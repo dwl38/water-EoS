@@ -136,7 +136,15 @@ def main() -> None:
     time_start_0 = time.time()
 
     data = read_file(args.input_file)
-    V_obs, T_obs, p_obs, p_obs_err, U_obs, U_obs_err, Cv_obs, Cv_obs_err = data
+    V_obs = data[0]
+    T_obs = data[1]
+    p_obs = data[2]
+    p_obs_err = data[3]
+    U_obs = data[4]
+    U_obs_err = data[5]
+    Cv_obs = data[6]
+    Cv_obs_err = data[7]
+
     rho_obs = WATER_MASS_DENSITY_CONVERSION / V_obs
     fes = FreeEnergySurface()
     fes.fit_to_data(*data)
@@ -158,10 +166,10 @@ def main() -> None:
 
     mean_surface = fes.internal_energy(V_plot, T_plot)
     unc_surface = fes.internal_energy_unc(V_plot, T_plot)
-    vmin = min(np.min(mean_surface), np.min(U_obs))
-    vmax = max(np.max(mean_surface), np.max(U_obs))
+    vmin = min(np.nanmin(mean_surface), np.min(U_obs))
+    vmax = max(np.nanmax(mean_surface), np.max(U_obs))
     levels = np.linspace(vmin, vmax, _N_PLOT_POINTS)
-    errmax = max(np.max(unc_surface), np.max(U_obs_err))
+    errmax = max(np.nanmax(unc_surface), np.max(U_obs_err))
     errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
     deviations = U_obs - fes.internal_energy(V_obs, T_obs)
@@ -170,13 +178,17 @@ def main() -> None:
 
     fig, ax = plt.subplots(1, 2)
     fig.set_size_inches(12.0, 4.0)
-    art = ax[0].tricontourf(T_plot, rho_plot, mean_surface, levels=levels,
-                            cmap='viridis', vmin=vmin, vmax=vmax)
+    mask = np.logical_not(np.isnan(mean_surface))
+    art = ax[0].tricontourf(T_plot[mask], rho_plot[mask], mean_surface[mask],
+                            levels=levels, cmap='viridis', vmin=vmin,
+                            vmax=vmax)
     ax[0].scatter(T_obs, rho_obs, c=U_obs, cmap='viridis', vmin=vmin,
                   vmax=vmax, ec='white')
     fig.colorbar(art, ax=ax[0], label=r'$E(T,\rho)\;[\text{eV}]$')
-    art = ax[1].tricontourf(T_plot, rho_plot, unc_surface, levels=errlevels,
-                            cmap='Reds', vmin=0.0, vmax=errmax)
+    mask = np.logical_not(np.isnan(unc_surface))
+    art = ax[1].tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
+                            levels=errlevels, cmap='Reds', vmin=0.0,
+                            vmax=errmax)
     ax[1].scatter(T_obs, rho_obs, c=U_obs_err, cmap='Reds', vmin=0.0,
                   vmax=errmax, ec='b')
     fig.colorbar(art, ax=ax[1], label=r'$\sigma_{E}(T,\rho)\;[\text{eV}]$')
@@ -190,6 +202,7 @@ def main() -> None:
     fig.suptitle('Total internal energy against temperature and density')
     fig.tight_layout()
     fig.savefig(output_dir / 'internal-energy.png', **_SAVEFIG_PARAMS)
+    plt.close(fig)
 
     print(f'Internal energy surface plotted in {elapsed_time(time_start_1)}.')
 
@@ -200,10 +213,10 @@ def main() -> None:
 
     mean_surface = fes.pressure(V_plot, T_plot)
     unc_surface = fes.pressure_unc(V_plot, T_plot)
-    vmax = max(np.max(np.abs(mean_surface)), np.max(np.abs(p_obs)))
+    vmax = max(np.nanmax(np.abs(mean_surface)), np.max(np.abs(p_obs)))
     norm = AsinhNorm(1.0, -vmax, vmax)
     levels = np.asarray(norm.inverse(np.linspace(0.0, 1.0, _N_PLOT_POINTS)))
-    errmax = max(np.max(unc_surface), np.max(p_obs_err))
+    errmax = max(np.nanmax(unc_surface), np.max(p_obs_err))
     errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
     deviations = p_obs - fes.pressure(V_obs, T_obs)
@@ -212,13 +225,16 @@ def main() -> None:
 
     fig, ax = plt.subplots(1, 2)
     fig.set_size_inches(12.0, 4.0)
-    art = ax[0].tricontourf(T_plot, rho_plot, mean_surface, levels=levels,
-                            cmap='berlin', norm=norm)
+    mask = np.logical_not(np.isnan(mean_surface))
+    art = ax[0].tricontourf(T_plot[mask], rho_plot[mask], mean_surface[mask],
+                            levels=levels, cmap='berlin', norm=norm)
     ax[0].scatter(T_obs, rho_obs, c=p_obs, cmap='berlin', norm=norm,
                   ec='lime')
     fig.colorbar(art, ax=ax[0], label=r'$p(T,\rho)\;[\text{bar}]$')
-    art = ax[1].tricontourf(T_plot, rho_plot, unc_surface, levels=errlevels,
-                            cmap='Reds', vmin=0.0, vmax=errmax)
+    mask = np.logical_not(np.isnan(unc_surface))
+    art = ax[1].tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
+                            levels=errlevels, cmap='Reds', vmin=0.0,
+                            vmax=errmax)
     ax[1].scatter(T_obs, rho_obs, c=p_obs_err, cmap='Reds', vmin=0.0,
                   vmax=errmax, ec='b')
     fig.colorbar(art, ax=ax[1], label=r'$\sigma_{p}(T,\rho)\;[\text{bar}]$')
@@ -232,6 +248,7 @@ def main() -> None:
     fig.suptitle('Pressure against temperature and density')
     fig.tight_layout()
     fig.savefig(output_dir / 'pressure.png', **_SAVEFIG_PARAMS)
+    plt.close(fig)
 
     print(f'Pressure surface plotted in {elapsed_time(time_start_1)}.')
 
@@ -244,10 +261,10 @@ def main() -> None:
 
         mean_surface = fes.heat_capacity(V_plot, T_plot)
         unc_surface = fes.heat_capacity_unc(V_plot, T_plot)
-        vmin = min(np.min(mean_surface), np.min(Cv_obs))
-        vmax = max(np.max(mean_surface), np.max(Cv_obs))
+        vmin = max(min(np.nanmin(mean_surface), np.min(Cv_obs)), 0.0)
+        vmax = max(np.nanmax(mean_surface), np.max(Cv_obs))
         levels = np.linspace(vmin, vmax, _N_PLOT_POINTS)
-        errmax = max(np.max(unc_surface), np.max(Cv_obs_err))
+        errmax = max(np.nanmax(unc_surface), np.max(Cv_obs_err))
         errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
         deviations = Cv_obs - fes.heat_capacity(V_obs, T_obs)
@@ -256,16 +273,22 @@ def main() -> None:
 
         fig, ax = plt.subplots(1, 2)
         fig.set_size_inches(12.0, 4.0)
-        art = ax[0].tricontourf(T_plot, rho_plot, mean_surface, levels=levels,
+        mask = np.logical_not(np.isnan(mean_surface))
+        art = ax[0].tricontourf(T_plot[mask], rho_plot[mask],
+                                mean_surface[mask], levels=levels,
                                 cmap='viridis', vmin=vmin, vmax=vmax)
         ax[0].scatter(T_obs, rho_obs, c=Cv_obs, cmap='viridis', vmin=vmin,
                       vmax=vmax, ec='white')
-        fig.colorbar(art, ax=ax[0], label=r'$C_V(T,\rho)\;[\text{eV}/\text{K}]$')
-        art = ax[1].tricontourf(T_plot, rho_plot, unc_surface, levels=errlevels,
+        fig.colorbar(art, ax=ax[0],
+                     label=r'$C_V(T,\rho)\;[\text{eV}/\text{K}]$')
+        mask = np.logical_not(np.isnan(unc_surface))
+        art = ax[1].tricontourf(T_plot[mask], rho_plot[mask],
+                                unc_surface[mask], levels=errlevels,
                                 cmap='Reds', vmin=0.0, vmax=errmax)
         ax[1].scatter(T_obs, rho_obs, c=Cv_obs_err, cmap='Reds', vmin=0.0,
                       vmax=errmax, ec='b')
-        fig.colorbar(art, ax=ax[1], label=r'$\sigma_{C_V}(T,\rho)\;[\text{eV}/\text{K}]$')
+        fig.colorbar(art, ax=ax[1],
+                     label=r'$\sigma_{C_V}(T,\rho)\;[\text{eV}/\text{K}]$')
         for i in range(2):
             ax[i].set_xlim(*_TEMP_RANGE)
             ax[i].set_ylim(*_DENSITY_RANGE)
@@ -276,6 +299,7 @@ def main() -> None:
         fig.suptitle('Heat capacity against temperature and density')
         fig.tight_layout()
         fig.savefig(output_dir / 'heat-capacity.png', **_SAVEFIG_PARAMS)
+        plt.close(fig)
 
         print(f'Heat capacity surface plotted in {elapsed_time(time_start_1)}.')
 
@@ -288,13 +312,14 @@ def main() -> None:
                  / (PRESSURE_CONVERSION * K_B * T_plot))
     ydfdy_unc = fes.internal_energy_unc(V_plot, T_plot) / (K_B * T_plot)
     unc_surface = np.sqrt((xdfdx_unc**2) + (ydfdy_unc**2))
-    vmax = np.max(unc_surface)
+    vmax = np.nanmax(unc_surface)
     levels = np.linspace(0.0, vmax, _N_PLOT_POINTS)
 
     fig, ax = plt.subplots()
     fig.set_size_inches(6.0, 4.0)
-    art = ax.tricontourf(T_plot, rho_plot, unc_surface, levels=levels,
-                         cmap='Reds', vmin=0.0, vmax=vmax)
+    mask = np.logical_not(np.isnan(unc_surface))
+    art = ax.tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
+                         levels=levels, cmap='Reds', vmin=0.0, vmax=vmax)
     fig.colorbar(art, ax=ax)
     ax.set_xlim(*_TEMP_RANGE)
     ax.set_ylim(*_DENSITY_RANGE)
@@ -302,6 +327,7 @@ def main() -> None:
     ax.set_ylabel(r'$\rho\;[\text{kg}/\text{m}^3]$')
     ax.set_title('Combined dimensionless uncertainty')
     fig.savefig(output_dir / 'uncertainty.png', **_SAVEFIG_PARAMS)
+    plt.close(fig)
 
     print(f'Uncertainty surface plotted in {elapsed_time(time_start_1)}.')
 
@@ -361,6 +387,7 @@ def main() -> None:
     fig.suptitle('Isochores')
     fig.legend(loc='outside right center')
     fig.savefig(output_dir / 'isochores.png', **_SAVEFIG_PARAMS)
+    plt.close(fig)
 
     print(f'Isochores plotted in {elapsed_time(time_start_1)}.')
 
@@ -377,8 +404,10 @@ def main() -> None:
     for temp, color, zorder in zip(_ISOTHERM_TEMPS, colors, x):
         label = r'$T\,=\,' + f'{temp:.0f}' + r'\,\text{K}$'
         p_range = fes.pressure(V_range, temp)
-        p_min = np.clip(np.min(p_range) + 1.0, *_PRESSURE_RANGE)
-        p_max = np.clip(np.max(p_range) - 1.0, *_PRESSURE_RANGE)
+        if np.all(np.isnan(p_range)):
+            continue
+        p_min = np.clip(np.nanmin(p_range) + 1.0, *_PRESSURE_RANGE)
+        p_max = np.clip(np.nanmax(p_range) - 1.0, *_PRESSURE_RANGE)
         p_range = np.linspace(p_min, p_max, _N_PLOT_POINTS)
         start_idx = np.argmin(np.abs(p_range))
         volumes = np.full(_N_PLOT_POINTS, AMBIENT_VOLUME)
@@ -447,6 +476,7 @@ def main() -> None:
     fig.suptitle('Isotherms')
     fig.legend(loc='outside right center')
     fig.savefig(output_dir / 'isotherms.png', **_SAVEFIG_PARAMS)
+    plt.close(fig)
 
     print(f'Isotherms plotted in {elapsed_time(time_start_1)}.')
 
@@ -465,6 +495,8 @@ def main() -> None:
         start_idx = np.argmin(np.abs(T_range - AMBIENT_TEMPERATURE))
         init_volume = fes.volume_at_p(press, AMBIENT_TEMPERATURE,
                                       init_guess=AMBIENT_VOLUME)
+        if np.isnan(init_volume):
+            continue
         volumes = np.full(_N_PLOT_POINTS, init_volume)
         for j in range(start_idx, _N_PLOT_POINTS):
             volumes[j:] = fes.volume_at_p(
@@ -529,6 +561,7 @@ def main() -> None:
     fig.suptitle('Isobars')
     fig.legend(loc='outside right center')
     fig.savefig(output_dir / 'isobars.png', **_SAVEFIG_PARAMS)
+    plt.close(fig)
 
     print(f'Isobars plotted in {elapsed_time(time_start_1)}.')
 
