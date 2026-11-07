@@ -437,7 +437,7 @@ def main() -> None:
                                                                 T_range)
         beta = fes.compressibility(volumes, T_range, lazy=False)
         beta_err = 2.0 * fes.compressibility_unc(volumes, T_range)
-        p_unc = fes.pressure_unc(volumes, T_range)
+        p_unc = 2.0 * fes.pressure_unc(volumes, T_range)
         volumes_err = np.abs(volumes * beta * p_unc)
         densities_err = (WATER_MASS_DENSITY_CONVERSION * volumes_err
                          / (volumes**2))
@@ -524,7 +524,7 @@ def main() -> None:
                                                                 T_range)
         beta = fes.compressibility(volumes, T_range, lazy=False)
         beta_err = 2.0 * fes.compressibility_unc(volumes, T_range)
-        p_unc = fes.pressure_unc(volumes, T_range)
+        p_unc = 2.0 * fes.pressure_unc(volumes, T_range)
         volumes_err = np.abs(volumes * beta * p_unc)
         densities_err = (WATER_MASS_DENSITY_CONVERSION * volumes_err
                          / (volumes**2))
