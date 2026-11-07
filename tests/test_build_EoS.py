@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 import fast_water_EoS.cli.build_equation_of_state
 import fast_water_EoS.cli.suggest_new_state
+import fast_water_EoS.cli.plot_EoS_with_data
 from pathlib import Path
 from fast_water_EoS.free_energy_surface import FreeEnergySurface
 
@@ -67,18 +68,12 @@ def test_build_EoS(data_file: Path, monkeypatch):
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['build_equation_of_state', 'test_logs/build_EoS/data.txt', '-o', 'test_logs/build_EoS'])
         fast_water_EoS.cli.build_equation_of_state.main()
-    with monkeypatch.context() as m:
-        m.setattr(sys, 'argv', ['suggest_new_state', 'test_logs/build_EoS/data.txt', 'test_logs/build_EoS/EoS.yaml', '-o', 'test_logs/build_EoS'])
-        fast_water_EoS.cli.suggest_new_state.main()
 
 
 def test_build_EoS_w_Cv(data_file_w_Cv: Path, monkeypatch):
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['build_equation_of_state', 'test_logs/build_EoS_w_Cv/data.txt', '-o', 'test_logs/build_EoS_w_Cv'])
         fast_water_EoS.cli.build_equation_of_state.main()
-    with monkeypatch.context() as m:
-        m.setattr(sys, 'argv', ['suggest_new_state', 'test_logs/build_EoS_w_Cv/data.txt', 'test_logs/build_EoS_w_Cv/EoS.yaml', '-o', 'test_logs/build_EoS_w_Cv'])
-        fast_water_EoS.cli.suggest_new_state.main()
 
 
 def test_EoS_for_spce(monkeypatch):
@@ -91,6 +86,9 @@ def test_EoS_for_spce(monkeypatch):
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['suggest_new_state', 'tests/data_spce.dat', 'test_logs/EoS_spce/EoS.yaml', '-o', 'test_logs/EoS_spce'])
         fast_water_EoS.cli.suggest_new_state.main()
+    with monkeypatch.context() as m:
+        m.setattr(sys, 'argv', ['plot_EoS_with_data', 'tests/data_spce.dat', 'test_logs/EoS_spce/EoS.yaml', '-o', 'test_logs/EoS_spce'])
+        fast_water_EoS.cli.plot_EoS_with_data.main()
 
 
 def test_EoS_for_spcfw(monkeypatch):
@@ -103,6 +101,9 @@ def test_EoS_for_spcfw(monkeypatch):
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['suggest_new_state', 'tests/data_spcfw.dat', 'test_logs/EoS_spcfw/EoS.yaml', '-o', 'test_logs/EoS_spcfw'])
         fast_water_EoS.cli.suggest_new_state.main()
+    with monkeypatch.context() as m:
+        m.setattr(sys, 'argv', ['plot_EoS_with_data', 'tests/data_spcfw.dat', 'test_logs/EoS_spcfw/EoS.yaml', '-o', 'test_logs/EoS_spcfw'])
+        fast_water_EoS.cli.plot_EoS_with_data.main()
 
 
 
@@ -116,6 +117,9 @@ def test_EoS_for_ccsdt(monkeypatch):
     with monkeypatch.context() as m:
         m.setattr(sys, 'argv', ['suggest_new_state', 'tests/data_ccsdt.dat', 'test_logs/EoS_ccsdt/EoS.yaml', '-o', 'test_logs/EoS_ccsdt'])
         fast_water_EoS.cli.suggest_new_state.main()
+    with monkeypatch.context() as m:
+        m.setattr(sys, 'argv', ['plot_EoS_with_data', 'tests/data_ccsdt.dat', 'test_logs/EoS_ccsdt/EoS.yaml', '-o', 'test_logs/EoS_ccsdt'])
+        fast_water_EoS.cli.plot_EoS_with_data.main()
 
 
 
