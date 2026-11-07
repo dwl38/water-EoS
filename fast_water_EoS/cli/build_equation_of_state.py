@@ -164,7 +164,7 @@ def main() -> None:
     V_plot, T_plot = V_plot.ravel(), T_plot.ravel()
     rho_plot = WATER_MASS_DENSITY_CONVERSION / V_plot
 
-    mean_surface = fes.internal_energy(V_plot, T_plot)
+    mean_surface = fes.internal_energy(V_plot, T_plot, lazy=False)
     unc_surface = fes.internal_energy_unc(V_plot, T_plot)
     vmin = min(np.nanmin(mean_surface), np.min(U_obs))
     vmax = max(np.nanmax(mean_surface), np.max(U_obs))
@@ -172,7 +172,7 @@ def main() -> None:
     errmax = max(np.nanmax(unc_surface), np.max(U_obs_err))
     errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
-    deviations = U_obs - fes.internal_energy(V_obs, T_obs)
+    deviations = U_obs - fes.internal_energy(V_obs, T_obs, lazy=False)
     mae = SI_prefix(np.mean(np.abs(deviations)), 'eV')
     rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'eV')
 
@@ -211,7 +211,7 @@ def main() -> None:
 
     time_start_1 = time.time()
 
-    mean_surface = fes.pressure(V_plot, T_plot)
+    mean_surface = fes.pressure(V_plot, T_plot, lazy=False)
     unc_surface = fes.pressure_unc(V_plot, T_plot)
     vmax = max(np.nanmax(np.abs(mean_surface)), np.max(np.abs(p_obs)))
     norm = AsinhNorm(1.0, -vmax, vmax)
@@ -219,7 +219,7 @@ def main() -> None:
     errmax = max(np.nanmax(unc_surface), np.max(p_obs_err))
     errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
-    deviations = p_obs - fes.pressure(V_obs, T_obs)
+    deviations = p_obs - fes.pressure(V_obs, T_obs, lazy=False)
     mae = SI_prefix(np.mean(np.abs(deviations)), 'bar')
     rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'bar')
 
@@ -259,7 +259,7 @@ def main() -> None:
 
     if Cv_obs is not None:
 
-        mean_surface = fes.heat_capacity(V_plot, T_plot)
+        mean_surface = fes.heat_capacity(V_plot, T_plot, lazy=False)
         unc_surface = fes.heat_capacity_unc(V_plot, T_plot)
         vmin = max(min(np.nanmin(mean_surface), np.min(Cv_obs)), 0.0)
         vmax = max(np.nanmax(mean_surface), np.max(Cv_obs))
@@ -267,7 +267,7 @@ def main() -> None:
         errmax = max(np.nanmax(unc_surface), np.max(Cv_obs_err))
         errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
-        deviations = Cv_obs - fes.heat_capacity(V_obs, T_obs)
+        deviations = Cv_obs - fes.heat_capacity(V_obs, T_obs, lazy=False)
         mae = SI_prefix(np.mean(np.abs(deviations)), 'eV/K')
         rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'eV/K')
 
@@ -344,13 +344,13 @@ def main() -> None:
     for density, color, zorder in zip(_ISOCHORE_DENSITIES, colors, x):
         label = r'$\rho\,=\,' + f'{density:.0f}' + r'\,\text{kg}/\text{m}^3$'
         vol = WATER_MASS_DENSITY_CONVERSION / density
-        p_curve = fes.pressure(vol, T_range)
+        p_curve = fes.pressure(vol, T_range, lazy=False)
         p_curve_err = 2.0 * fes.pressure_unc(vol, T_range)
-        Cv = fes.heat_capacity(vol, T_range)
+        Cv = fes.heat_capacity(vol, T_range, lazy=False)
         Cv_err = 2.0 * fes.heat_capacity_unc(vol, T_range)
-        gamma = fes.thermal_pressure_coefficient(vol, T_range)
+        gamma = fes.thermal_pressure_coefficient(vol, T_range, lazy=False)
         gamma_err = 2.0 * fes.thermal_pressure_coefficient_unc(vol, T_range)
-        beta = fes.compressibility(vol, T_range)
+        beta = fes.compressibility(vol, T_range, lazy=False)
         beta_err = 2.0 * fes.compressibility_unc(vol, T_range)
         ax[0][0].fill_between(T_range, p_curve - p_curve_err,
                               p_curve + p_curve_err, color=color, ec='none',
@@ -428,13 +428,14 @@ def main() -> None:
             if np.isnan(volumes[j-1]):
                 break
         densities = WATER_MASS_DENSITY_CONVERSION / volumes
-        gamma = fes.thermal_pressure_coefficient(volumes, T_range)
+        gamma = fes.thermal_pressure_coefficient(volumes, T_range, lazy=False)
         gamma_err = 2.0 * fes.thermal_pressure_coefficient_unc(volumes,
                                                                T_range)
-        alpha = fes.thermal_expansion_coefficient(volumes, T_range)
+        alpha = fes.thermal_expansion_coefficient(volumes, T_range,
+                                                  lazy=False)
         alpha_err = 2.0 * fes.thermal_expansion_coefficient_unc(volumes,
                                                                 T_range)
-        beta = fes.compressibility(volumes, T_range)
+        beta = fes.compressibility(volumes, T_range, lazy=False)
         beta_err = 2.0 * fes.compressibility_unc(volumes, T_range)
         p_unc = fes.pressure_unc(volumes, T_range)
         volumes_err = np.abs(volumes * beta * p_unc)
@@ -515,12 +516,13 @@ def main() -> None:
             if np.isnan(volumes[j-1]):
                 break
         densities = WATER_MASS_DENSITY_CONVERSION / volumes
-        Cp = fes.isobaric_heat_capacity(volumes, T_range)
+        Cp = fes.isobaric_heat_capacity(volumes, T_range, lazy=False)
         Cp_err = 2.0 * fes.isobaric_heat_capacity_unc(volumes, T_range)
-        alpha = fes.thermal_expansion_coefficient(volumes, T_range)
+        alpha = fes.thermal_expansion_coefficient(volumes, T_range,
+                                                  lazy=False)
         alpha_err = 2.0 * fes.thermal_expansion_coefficient_unc(volumes,
                                                                 T_range)
-        beta = fes.compressibility(volumes, T_range)
+        beta = fes.compressibility(volumes, T_range, lazy=False)
         beta_err = 2.0 * fes.compressibility_unc(volumes, T_range)
         p_unc = fes.pressure_unc(volumes, T_range)
         volumes_err = np.abs(volumes * beta * p_unc)
