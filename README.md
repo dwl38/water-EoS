@@ -54,9 +54,22 @@ fes.load_from_file('EoS.yaml')
 
 after which thermodynamic properties can be calculated using `FreeEnergySurface`'s methods, e.g. for your own custom analysis/plotting scripts.
 
+## Other functionalities
+
+The package also includes the following scripts, which can be called from the command line:
+
+- `suggest_new_state` finds the state of highest uncertainty within a fitted model's data, which is a good suggestion for the next new state to be target with additional simulations
+
+- `plot_EoS_with_data` recreates similar plots as the `build_equation_of_state` script, but using data-rescaled bounds (rather than fixed presets) for better comparison.
+
+We are also planning the functionality to fit "delta" Equations of State (i.e. perturbative free energy differences from a reference substance), but this is currently work in progress.
+
 ## Changelog
 
 ```
+v1.2.0: Added the `plot_EoS_with_data` script; also added an option to
+`FreeEnergySurface` for non-lazy evaluation
+
 v1.1.0: [BREAKING CHANGE] Added functionality to `FreeEnergySurface`, which
 now has an "extrapolate" option; when extrapolation is disabled (default), the
 model reports NaNs for inputs outside of the provided data's convex hull.
