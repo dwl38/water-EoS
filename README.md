@@ -67,7 +67,10 @@ We are also planning the functionality to fit "delta" Equations of State (i.e. p
 ## Changelog
 
 ```
-v1.2.1: Minor optimization
+v1.2.2: Minor improvements in numerical stability by subtracting large
+energy offsets
+
+v1.2.1: Minor optimization using runtime modular construction of methods
 
 v1.2.0: Added the `plot_EoS_with_data` script; also added an option to
 `FreeEnergySurface` for non-lazy evaluation

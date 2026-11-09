@@ -94,6 +94,7 @@ class _FES:
             self._fixed_preset = True
         else:
             raise RuntimeError(f'method "{method}" not recognized!')
+        self._U_offset = 0.0
     
 
     def fit_to_data(
@@ -106,6 +107,7 @@ class _FES:
             U_err: np.ndarray[tuple[int], np.dtype[float]],
             Cv: np.ndarray[tuple[int], np.dtype[float]] = None,
             Cv_err: np.ndarray[tuple[int], np.dtype[float]] = None,
+            U_offset: float = 0.0,
         ) -> None:
         """Fits this free energy surface to a set of known values.
 
@@ -135,12 +137,17 @@ class _FES:
             Uncertainties of isochoric heat capacities corresponding to the
             provided volumes and temperatures, in eV/K. Must be provided if
             `Cv` is provided.
+        U_offset : float, optional
+            Offset to subtract off internal energies during fitting.
         """
         if self._fixed_preset:
+            self._U_offset = 0.0
             warnings.warn('Cannot fit onto fixed functional form!',
                           UserWarning)
             return None
         
+        self._U_offset = float(U_offset)
+
         if Cv is None:
         
             inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err)
@@ -148,7 +155,7 @@ class _FES:
             fit_T = inputs[1].astype(float).ravel()
             fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
             sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
-            fit_U = inputs[4].astype(float).ravel()
+            fit_U = inputs[4].astype(float).ravel() - self._U_offset
             sigma_U = inputs[5].astype(float).ravel()
 
             x = CRITICAL_VOLUME / fit_V
@@ -174,7 +181,7 @@ class _FES:
             fit_T = inputs[1].astype(float).ravel()
             fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
             sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
-            fit_U = inputs[4].astype(float).ravel()
+            fit_U = inputs[4].astype(float).ravel() - self._U_offset
             sigma_U = inputs[5].astype(float).ravel()
             fit_Cv = inputs[6].astype(float).ravel()
             sigma_Cv = inputs[7].astype(float).ravel()
@@ -263,6 +270,8 @@ class _FES:
             self._fixed_preset = True
         else:
             raise RuntimeError(f'method "{params['method']}" not recognized!')
+        self._U_offset = (0.0 if 'U_offset' not in params
+                          else float(params['U_offset']))
 
 
     def save_to_dict(self):
@@ -271,6 +280,7 @@ class _FES:
         if not self._fixed_preset:
             params['dof'] = float(self._dof)
             if self.f is not None:
+                params['U_offset'] = float(self._U_offset)
                 params['f'] = self.f.get_params()
         return params
 
@@ -293,7 +303,7 @@ class _FES:
         underlying partition function is arbitrary up to a multiplicative
         constant; only differences in free energies are meaningful."""
         x, y = self._check_valid_and_convert_to_xy(V, T)
-        return K_B * T * self.f.f(x, y)
+        return (K_B * T * self.f.f(x, y)) + self._U_offset
         
 
     def internal_energy(
@@ -304,7 +314,7 @@ class _FES:
         """Returns the internal energy `U = F + TS`, in units of eV, at the
         specified volume and temperature."""
         x, y = self._check_valid_and_convert_to_xy(V, T)
-        return K_B * T * y * self.f.dfdy(x, y)
+        return (K_B * T * y * self.f.dfdy(x, y)) + self._U_offset
 
 
     def entropy(

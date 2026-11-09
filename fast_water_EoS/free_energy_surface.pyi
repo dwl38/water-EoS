@@ -187,7 +187,7 @@ class FreeEnergySurface:
             T: np.ndarray[_AnyShape, np.dtype[float]] | float,
             lazy : bool = True,
         ) -> np.ndarray[_AnyShape, np.dtype[float]]:
-        """Returns the free energy `F(T, V)`, in units of eV, at the specified
+        """Returns the free energy `F(V, T)`, in units of eV, at the specified
         volume and temperature.
         
         Note that the absolute value of free energy is meaningless, as the
@@ -201,7 +201,7 @@ class FreeEnergySurface:
             V: np.ndarray[_AnyShape, np.dtype[float]] | float,
             T: np.ndarray[_AnyShape, np.dtype[float]] | float,
         ) -> np.ndarray[_AnyShape, np.dtype[float]]:
-        """Returns the uncertainty of the free energy `F(T, V)`, in units of
+        """Returns the uncertainty of the free energy `F(V, T)`, in units of
         eV, at the specified volume and temperature.
         
         Note that the absolute value of free energy is meaningless, as the

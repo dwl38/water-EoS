@@ -2,7 +2,7 @@ import re
 import yaml
 import warnings
 import numpy as np
-from scipy.spatial import ConvexHull, QhullError
+from scipy.spatial import Delaunay, QhullError
 from ._fes import _FES
 
 
@@ -37,24 +37,28 @@ class FreeEnergySurface:
             self._method = 'bspline'
             self._dof = float(dof)
             self._extrapolate = bool(extrapolate)
+            self._fixed_preset = False
         elif method == 'poly':
             self._main_model = _FES('poly', dof=dof)
             self._N_models = int(N_models)
             self._method = 'poly'
             self._dof = float(dof)
             self._extrapolate = bool(extrapolate)
+            self._fixed_preset = False
         elif method == 'iapws':
             self._main_model = _FES('iapws')
             self._N_models = 0
             self._method = 'iapws'
             self._dof = 6.0
             self._extrapolate = True
+            self._fixed_preset = True
         elif method == 'gerg':
             self._main_model = _FES('gerg')
             self._N_models = 0
             self._method = 'gerg'
             self._dof = 6.0
             self._extrapolate = True
+            self._fixed_preset = True
         else:
             raise RuntimeError(f'method "{method}" not recognized!')
         self._committee = None
@@ -62,18 +66,48 @@ class FreeEnergySurface:
     
 
     def fit_to_data(self, V, T, p, p_err, U, U_err, Cv=None, Cv_err=None):
+        
+        if self._fixed_preset:
+            warnings.warn('Cannot fit onto fixed functional form!',
+                          UserWarning)
+            return None
 
-        self._main_model.fit_to_data(V, T, p, p_err, U, U_err, Cv, Cv_err)
-
-        if not self._extrapolate:
-            V_cast, T_cast = np.broadcast_arrays(V, T)
-            data = np.column_stack([V_cast.ravel(), T_cast.ravel()])
-            try:
-                self._convex_hull_eqns = ConvexHull(data).equations
-            except QhullError:
+        try:
+            V_cast, T_cast, U_cast = np.broadcast_arrays(V, T, U)
+            points = np.column_stack([V_cast.ravel(), T_cast.ravel()])
+            triangulation = Delaunay(points)
+            s = triangulation.simplices
+            p0, p1, p2 = points[s[:,0]], points[s[:,1]], points[s[:,2]]
+            areas = 0.5 * np.abs(
+                (((p1[:,0] - p0[:,0]) * (p2[:,1] - p0[:,1]))
+                 - ((p2[:,0] - p0[:,0]) * (p1[:,1] - p0[:,1]))),
+            )
+            weights = np.zeros(points.shape[0])
+            for k in range(3):
+                np.add.at(weights, s[:,k], areas / 3.0)
+            U_offset = (weights @ U_cast.ravel()) / np.sum(weights)
+            if not self._extrapolate:
+                edges = triangulation.convex_hull
+                edge_vectors = points[edges[:,1]] - points[edges[:,0]]
+                normals = np.column_stack([edge_vectors[:,1],
+                                           -edge_vectors[:,0]])
+                normals /= np.linalg.norm(normals, axis=1, keepdims=True)
+                offsets = -np.einsum('ij,ij->i', normals, points[edges[:,0]])
+                edge_CoM = np.mean(points[np.unique(edges)], axis=0)
+                sign_flip = (((normals @ edge_CoM) + offsets) > 0)
+                normals[sign_flip] *= -1
+                offsets[sign_flip] *= -1
+                self._convex_hull_eqns = np.column_stack([normals, offsets])
+        except QhullError:
+            U_offset = np.mean(U)
+            if not self._extrapolate:
                 warnings.warn('Failed to construct convex hull, extrapolation'
                               ' defaulted to true', UserWarning)
-                self._extrapolate = True
+            self._extrapolate = True
+            self._convex_hull_eqns = None
+
+        self._main_model.fit_to_data(V, T, p, p_err, U, U_err, Cv, Cv_err,
+                                     U_offset)
 
         if self._N_models > 0:
             rng = np.random.default_rng()
@@ -83,11 +117,12 @@ class FreeEnergySurface:
                 new_U = U + rng.normal(scale=U_err)
                 model = _FES(self._method, self._dof)
                 if Cv is None:
-                    model.fit_to_data(V, T, new_p, p_err, new_U, U_err)
+                    model.fit_to_data(V, T, new_p, p_err, new_U, U_err,
+                                      None, None, U_offset)
                 else:
                     new_Cv = Cv + rng.normal(scale=Cv_err)
                     model.fit_to_data(V, T, new_p, p_err, new_U, U_err,
-                                      new_Cv, Cv_err)
+                                      new_Cv, Cv_err, U_offset)
                 self._committee.append(model)
         else:
             self._committee = None
@@ -96,8 +131,9 @@ class FreeEnergySurface:
     def load_from_file(self, file):
         with open(file, 'r') as fp:
             params = yaml.safe_load(fp)
-        if 'method' not in params:
-            raise IOError('"method" field missing from file!')
+        for mandatory_field in ('method', 'extrapolate'):
+            if mandatory_field not in params:
+                raise IOError(f'"{mandatory_field}" field missing from file!')
         if params['method'] in ('bspline', 'poly'):
             self._method = str(params['method'])
             self._N_models = int(params['N_models'])
@@ -113,12 +149,14 @@ class FreeEnergySurface:
                 assert len(self._committee) == self._N_models
             else:
                 self._committee = None
+            self._fixed_preset = False
         elif params['method'] in ('iapws', 'gerg'):
             self._method = str(params['method'])
             self._main_model = _FES(self._method)
             self._committee = None
             self._N_models = 0
             self._dof = 6.0
+            self._fixed_preset = True
         else:
             raise RuntimeError(f'method "{params['method']}" not recognized!')
         if 'extrapolate' in params:
@@ -127,6 +165,8 @@ class FreeEnergySurface:
                 self._convex_hull_eqns = np.asarray(
                     params['convex_hull_eqns'], dtype=float,
                 )
+            else:
+                self._convex_hull_eqns = None
         else:
             self._extrapolate = True
             self._convex_hull_eqns = None
