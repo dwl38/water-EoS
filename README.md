@@ -56,7 +56,9 @@ after which thermodynamic properties can be calculated using `FreeEnergySurface`
 
 ## Other functionalities
 
-The package also includes the following scripts, which can be called from the command line:
+The package also includes helper functions, for post-processing time series data from molecular dynamics simulations, in `fast_water_EoS.stats`; these may be called from e.g. custom analysis scripts.
+
+Additionally, the following scripts are also available from the command line:
 
 - `suggest_new_state` finds the state of highest uncertainty within a fitted model's data, which is a good suggestion for the next new state to be target with additional simulations
 
@@ -67,6 +69,17 @@ We are also planning the functionality to fit "delta" Equations of State (i.e. p
 ## Changelog
 
 ```
+v0.2.2a0: Changes to `stats` module:
+    - Definition of statistical inefficiency switched from truncation at first
+    zero (as recommended by Chodera et al. 2007), to truncation at first
+    running subsequence of small values (as recommended by Politis and White
+    2004), in order to be more robust against fast fluctuations.
+    - Error estimation for sample mean of correlated data switched from
+    analytical calculation of statistical inefficiency as described above, to
+    moving block bootstrap (see Künsch 1989) over an automatic block size (see
+    Politis and White 2004), which asymptotically guarantees a minimal
+    error-of-error.
+
 v1.2.2 -> v0.2.2: Versioning backslide (not ready for release!)
 
 v1.2.2: Minor improvements in numerical stability by subtracting large

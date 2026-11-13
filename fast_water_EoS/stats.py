@@ -5,6 +5,7 @@ A collection of methods useful for studying the statistics of a time series
 
 import warnings
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import fftconvolve
 
 
@@ -95,21 +96,50 @@ def mean_and_error(
     else:
         variance = float(np.dot(w_norm**2, s**2))
 
-    if adjust_for_correlation:
-        r = residuals - np.mean(residuals)
-        autocorr = fftconvolve(r, r[::-1], mode='full')[(N_data - 1):]
-        if autocorr[0] > np.finfo(float).eps:
-            autocorr /= autocorr[0]
-            if np.min(autocorr) < 0.0:
-                cutoff_idx = np.argmax(autocorr < 0.0)
-                autocorr = autocorr[:cutoff_idx]
-            if autocorr.shape[0] > 1:
-                lags = np.arange(1, autocorr.shape[0])
-                sum_autocorrs = np.sum((1.0 - (lags / N_data)) * autocorr[1:])
-                stat_ineff = 1.0 + (2.0 * sum_autocorrs)
-                variance *= max(stat_ineff, 1.0)
+    if not adjust_for_correlation:
+        return float(mean), float(np.sqrt(variance))
 
-    return float(mean), float(np.sqrt(variance))
+    # adjust_for_correlation is True: use the moving block bootstrap
+    # Refer to "Politis, White (2004). Automatic block-length selection for
+    # the dependent bootstrap. Econom. Rev. 23(1), 53-70."
+
+    r = residuals - np.mean(residuals)
+    autocorr = fftconvolve(r, r[::-1], mode='full')[(N_data - 1):]
+    if autocorr[0] <= np.finfo(float).eps:
+        return float(mean), 0.0
+    autocorr /= autocorr[0]
+    tolerance = 2.0 * np.sqrt(np.log10(N_data) / N_data)
+    cutoff_idx = np.argmax(
+        sliding_window_view(
+            np.abs(autocorr) < tolerance,
+            max(5, int(np.sqrt(np.log10(N_data)))),
+        ).all(axis=1),
+    )
+    if cutoff_idx == 0:
+        return float(mean), float(np.sqrt(variance))
+    truncate = 2 * cutoff_idx
+    k = np.arange(truncate)
+    flat_top = 2.0 * (1.0 - ((k + 1) / truncate))
+    flat_top[:cutoff_idx] = 1.0
+    G_hat = 2.0 * np.sum(flat_top * (k + 1) * autocorr[1:(truncate + 1)])
+    g_hat = 1.0 + (2.0 * np.sum(flat_top * autocorr[1:(truncate + 1)]))
+    block_length = int(round(np.power(1.5 * N_data * ((G_hat / g_hat)**2),
+                                      1.0 / 3.0)))
+    if block_length < 2:
+        return float(mean), float(np.sqrt(variance))
+    if block_length > (0.5 * N_data):
+        warnings.warn(
+            'mean_and_error: Data too strongly correlated',
+            RuntimeWarning,
+        )
+        g = statistical_inefficiency(r)
+        return float(mean), float(np.sqrt(variance * g))
+    cumulative = np.concat(([0.0,], np.cumsum(r)))
+    block_means = ((cumulative[block_length:] - cumulative[:-block_length])
+                   / block_length)
+    block_variance = block_length * np.var(block_means)
+    
+    return float(mean), float(np.sqrt(block_variance / N_data))
 
 
 def statistical_inefficiency(
@@ -143,11 +173,16 @@ def statistical_inefficiency(
     if autocorr[0] <= np.finfo(float).eps:
         return 1.0
     autocorr /= autocorr[0]
-    if np.min(autocorr) < 0.0:
-        cutoff_idx = np.argmax(autocorr < 0.0)
+    tolerance = 2.0 * np.sqrt(np.log10(N_data) / N_data)
+    cutoff_idx = np.argmax(
+        sliding_window_view(
+            np.abs(autocorr) < tolerance,
+            max(5, int(np.sqrt(np.log10(N_data)))),
+        ).all(axis=1),
+    )
+    if cutoff_idx > 0:
         autocorr = autocorr[:cutoff_idx]
-    if autocorr.shape[0] > 1:
-        lags = np.arange(1, autocorr.shape[0])
+        lags = np.arange(1, cutoff_idx)
         sum_autocorrs = np.sum((1.0 - (lags / N_data)) * autocorr[1:])
         stat_ineff = float(1.0 + (2.0 * sum_autocorrs))
         return max(stat_ineff, 1.0)
