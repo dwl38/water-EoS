@@ -67,6 +67,8 @@ We are also planning the functionality to fit "delta" Equations of State (i.e. p
 ## Changelog
 
 ```
+v1.2.2 -> v0.2.2: Versioning backslide (not ready for release!)
+
 v1.2.2: Minor improvements in numerical stability by subtracting large
 energy offsets
 
