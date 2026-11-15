@@ -9,6 +9,43 @@ from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import fftconvolve
 
 
+def _normalized_autocorr(data, N_data):
+    r = data - np.mean(data)
+    autocorr = fftconvolve(r, r[::-1], mode='full')[(N_data - 1):]
+    if autocorr[0] <= np.finfo(float).eps:
+        return None
+    return autocorr / autocorr[0]
+
+
+def _autocorr_cutoff_idx(autocorr, N_data):
+    tolerance = 2.0 * np.sqrt(np.log10(N_data) / N_data)
+    return np.argmax(
+        sliding_window_view(
+            np.abs(autocorr) < tolerance,
+            max(5, int(np.sqrt(np.log10(N_data)))),
+        ).all(axis=1),
+    )
+
+
+def _stat_ineff_from_autocorrs(autocorr, cutoff_idx, N_data):
+    lags = np.arange(1, cutoff_idx)
+    sum_autocorrs = np.sum((1.0 - (lags / N_data)) * autocorr[1:cutoff_idx])
+    return 1.0 + max(0.0, 2.0 * float(sum_autocorrs))
+
+
+def _optimal_block_length(autocorr, N_data):
+    cutoff_idx = _autocorr_cutoff_idx(autocorr, N_data)
+    if cutoff_idx < 1:
+        return 0
+    truncate = 2 * cutoff_idx
+    k = np.arange(truncate)
+    flat_top = 2.0 * (1.0 - ((k + 1) / truncate))
+    flat_top[:cutoff_idx] = 1.0
+    G_hat = 2.0 * np.sum(flat_top * (k + 1) * autocorr[1:(truncate + 1)])
+    g_hat = 1.0 + (2.0 * np.sum(flat_top * autocorr[1:(truncate + 1)]))
+    return round(np.power(1.5 * N_data * ((G_hat / g_hat)**2), 1.0 / 3.0))
+
+
 def mean_and_error(
         data: np.ndarray,
         weights: np.ndarray = None,
@@ -43,8 +80,9 @@ def mean_and_error(
         the provided samples are assumed to be fully uncorrelated, and the
         reported error will be the naive "standard error of sample mean" based
         on the samples' variances. If activated, which is the default
-        behavior, the reported standard error will be magnified based on the
-        samples' statistical inefficiency.
+        behavior, the reported standard error will instead be estimated using
+        a moving block bootstrap, with automatically-selected block length
+        (see Politis and White 2004).
     
     Returns
     -------
@@ -103,28 +141,10 @@ def mean_and_error(
     # Refer to "Politis, White (2004). Automatic block-length selection for
     # the dependent bootstrap. Econom. Rev. 23(1), 53-70."
 
-    r = residuals - np.mean(residuals)
-    autocorr = fftconvolve(r, r[::-1], mode='full')[(N_data - 1):]
-    if autocorr[0] <= np.finfo(float).eps:
+    autocorr = _normalized_autocorr(residuals, N_data)
+    if autocorr is None:
         return float(mean), 0.0
-    autocorr /= autocorr[0]
-    tolerance = 2.0 * np.sqrt(np.log10(N_data) / N_data)
-    cutoff_idx = np.argmax(
-        sliding_window_view(
-            np.abs(autocorr) < tolerance,
-            max(5, int(np.sqrt(np.log10(N_data)))),
-        ).all(axis=1),
-    )
-    if cutoff_idx == 0:
-        return float(mean), float(np.sqrt(variance))
-    truncate = 2 * cutoff_idx
-    k = np.arange(truncate)
-    flat_top = 2.0 * (1.0 - ((k + 1) / truncate))
-    flat_top[:cutoff_idx] = 1.0
-    G_hat = 2.0 * np.sum(flat_top * (k + 1) * autocorr[1:(truncate + 1)])
-    g_hat = 1.0 + (2.0 * np.sum(flat_top * autocorr[1:(truncate + 1)]))
-    block_length = int(round(np.power(1.5 * N_data * ((G_hat / g_hat)**2),
-                                      1.0 / 3.0)))
+    block_length = _optimal_block_length(autocorr, N_data)
     if block_length < 2:
         return float(mean), float(np.sqrt(variance))
     if block_length > (0.5 * N_data):
@@ -132,11 +152,10 @@ def mean_and_error(
             'mean_and_error: Data too strongly correlated',
             RuntimeWarning,
         )
-        g = statistical_inefficiency(r)
+        g = statistical_inefficiency(residuals)
         return float(mean), float(np.sqrt(variance * g))
-    cumulative = np.concat(([0.0,], np.cumsum(r)))
-    block_means = ((cumulative[block_length:] - cumulative[:-block_length])
-                   / block_length)
+    acc = np.concat(([0.0,], np.cumsum(residuals - np.mean(residuals))))
+    block_means = ((acc[block_length:] - acc[:-block_length]) / block_length)
     block_variance = block_length * np.var(block_means)
     
     return float(mean), float(np.sqrt(block_variance / N_data))
@@ -168,25 +187,13 @@ def statistical_inefficiency(
     N_data = samples.shape[0]
     if N_data < 1:
         raise ValueError('statistical_inefficiency: Empty array')
-    r = samples - np.mean(samples)
-    autocorr = fftconvolve(r, r[::-1], mode='full')[(N_data - 1):]
-    if autocorr[0] <= np.finfo(float).eps:
+    autocorr = _normalized_autocorr(samples, N_data)
+    if autocorr is None:
         return 1.0
-    autocorr /= autocorr[0]
-    tolerance = 2.0 * np.sqrt(np.log10(N_data) / N_data)
-    cutoff_idx = np.argmax(
-        sliding_window_view(
-            np.abs(autocorr) < tolerance,
-            max(5, int(np.sqrt(np.log10(N_data)))),
-        ).all(axis=1),
-    )
-    if cutoff_idx > 0:
-        autocorr = autocorr[:cutoff_idx]
-        lags = np.arange(1, cutoff_idx)
-        sum_autocorrs = np.sum((1.0 - (lags / N_data)) * autocorr[1:])
-        stat_ineff = float(1.0 + (2.0 * sum_autocorrs))
-        return max(stat_ineff, 1.0)
-    return 1.0
+    cutoff_idx = _autocorr_cutoff_idx(autocorr, N_data)
+    if cutoff_idx < 1:
+        return 1.0
+    return _stat_ineff_from_autocorrs(autocorr, cutoff_idx, N_data)
 
 
 def variance_and_error(
