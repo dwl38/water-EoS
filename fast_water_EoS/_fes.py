@@ -8,10 +8,7 @@ import warnings
 import numpy as np
 from typing import Literal
 from numpy._typing import _AnyShape
-from .func.additive import Additive
-from .func.polynomial import Polynomial
-from .func.bspline import BSpline
-from .func.ideal_gas import IdealGas
+from .func.ideal_gas_plus_bspline import IdealGasPlusBSpline
 from .func.iapws import IAPWS95
 from .func.gerg import GERG2008
 from .constants import (K_B, PRESSURE_CONVERSION, CRITICAL_VOLUME,
@@ -23,22 +20,17 @@ class _FES:
     terms of the dimensionless free energy as a function of reduced density
     and reduced inverse temperature:
     ```
-    x  =  V𞁞 / V ,
-    y  =  T𞁞 / T ,
+    x  =  V₀ / V ,
+    y  =  T₀ / T ,
     F(V, T)  =  kT f(x, y) ,
     ```
 
-    where `V𞁞 = 92.9039635 Å³`  and `T𞁞 = 647.096 K` represent the volume and
-    temperature respectively of water's liquid-vapour critical point. This
-    choice of nondimensionalizing `V` and `T` relative to the critical point
-    is meaningful for the preset free energy surfaces (e.g. IAWPS-95 and
-    GERG-2008) as they fix divergences at `x = y = 1`, but completely
-    arbitrary for fitted free energy surfaces as it simply represents a
-    rescaling of the variables.
+    where `V₀`  and `T₀` are arbitrary reference volumes and temperatures
+    respectively.
 
     Parameters
     ----------
-    model : {'bspline', 'poly', 'iapws', 'gerg'}, optional
+    model : {'bspline', 'iapws', 'gerg'}, optional
         Model for the equation of state `f(x, y)`. Some of these choices
         correspond to flexible models, which are designed to be fitted onto
         user-supplied thermodynamic data, whereas some correspond to fixed
@@ -52,13 +44,6 @@ class _FES:
           fitted using 4th-order B-splines; the resulting model is purely
           interpolatory, and reverts back to the ideal gas when far outside
           the rectangular domain bounded by the provided data.
-        - 'poly': A flexible model based on a polynomial series. Specifically,
-          the free energy function `f(x, y)` is expressed as an ideal gas part
-          plus a residual part, where the residual part is fitted using the
-          highest-order polynomial possible. Although the resulting model
-          nominally has some extrapolatory power, in practice the Runge
-          phenomenon results in rapid divergences especially when far away
-          from the provided data's center-of-mass.
         - 'iapws': The IAPWS-95 equation of state, a fixed preset.
         - 'gerg': The GERG-2008 equation of state, a fixed preset.
 
@@ -71,18 +56,13 @@ class _FES:
 
     def __init__(
             self,
-            method: Literal['bspline', 'poly', 'iapws', 'gerg'] = None,
+            method: Literal['bspline', 'iapws', 'gerg'] = None,
             dof: int | float = 6,
         ):
         if method is None or method == 'bspline':
             self.f = None
             self._dof = float(dof)
             self._method = 'bspline'
-            self._fixed_preset = False
-        elif method == 'poly':
-            self.f = None
-            self._dof = float(dof)
-            self._method = 'poly'
             self._fixed_preset = False
         elif method == 'iapws':
             self.f = IAPWS95()
@@ -94,6 +74,8 @@ class _FES:
             self._fixed_preset = True
         else:
             raise RuntimeError(f'method "{method}" not recognized!')
+        self._V_ref = CRITICAL_VOLUME
+        self._T_ref = CRITICAL_TEMPERATURE
         self._U_offset = 0.0
     
 
@@ -105,8 +87,8 @@ class _FES:
             p_err: np.ndarray[tuple[int], np.dtype[float]],
             U: np.ndarray[tuple[int], np.dtype[float]],
             U_err: np.ndarray[tuple[int], np.dtype[float]],
-            Cv: np.ndarray[tuple[int], np.dtype[float]] = None,
-            Cv_err: np.ndarray[tuple[int], np.dtype[float]] = None,
+            Cv: np.ndarray[tuple[int], np.dtype[float]],
+            Cv_err: np.ndarray[tuple[int], np.dtype[float]],
             U_offset: float = 0.0,
         ) -> None:
         """Fits this free energy surface to a set of known values.
@@ -141,22 +123,34 @@ class _FES:
             Offset to subtract off internal energies during fitting.
         """
         if self._fixed_preset:
+            self._V_ref = CRITICAL_VOLUME
+            self._T_ref = CRITICAL_TEMPERATURE
             self._U_offset = 0.0
             warnings.warn('Cannot fit onto fixed functional form!',
                           UserWarning)
             return None
         
+        inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err, Cv, Cv_err)
+        fit_V = inputs[0].astype(float).ravel()
+        fit_T = inputs[1].astype(float).ravel()
+        fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
+        sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
+        fit_U = inputs[4].astype(float).ravel() - self._U_offset
+        sigma_U = inputs[5].astype(float).ravel()
+        fit_Cv = inputs[6].astype(float).ravel()
+        sigma_Cv = inputs[7].astype(float).ravel()
+        
+        self._V_ref = float(min(
+            2.0 * np.min(fit_V),
+            1.0 / np.mean(1.0 / fit_V),
+        ))
+        self._T_ref = float(min(
+            2.0 * np.min(fit_T),
+            1.0 / np.mean(1.0 / fit_T),
+        ))
         self._U_offset = float(U_offset)
 
         if Cv is None:
-        
-            inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err)
-            fit_V = inputs[0].astype(float).ravel()
-            fit_T = inputs[1].astype(float).ravel()
-            fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
-            sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
-            fit_U = inputs[4].astype(float).ravel() - self._U_offset
-            sigma_U = inputs[5].astype(float).ravel()
 
             x = CRITICAL_VOLUME / fit_V
             y = CRITICAL_TEMPERATURE / fit_T
@@ -174,60 +168,33 @@ class _FES:
                 dtype='<U6',
             )
 
-        else:
+        x = self._V_ref / fit_V
+        y = self._T_ref / fit_T
+
+        dfdx = fit_p * fit_V / (K_B * fit_T * x)
+        dfdx_err = np.abs(sigma_p * fit_V / (K_B * fit_T * x))
+
+        dfdy = (fit_U - self._U_offset) / (K_B * self._T_ref)
+        dfdy_err = np.abs(sigma_U / (K_B * self._T_ref))
+
+        idx = np.logical_and(np.isfinite(fit_Cv), np.isfinite(sigma_Cv))
+        ddfdyy = -fit_Cv[idx] / (K_B * (y[idx]**2))
+        ddfdyy_err = np.abs(sigma_Cv[idx] / (K_B * (y[idx]**2)))
         
-            inputs = np.broadcast_arrays(V, T, p, p_err, U, U_err, Cv, Cv_err)
-            fit_V = inputs[0].astype(float).ravel()
-            fit_T = inputs[1].astype(float).ravel()
-            fit_p = inputs[2].astype(float).ravel() / PRESSURE_CONVERSION
-            sigma_p = inputs[3].astype(float).ravel() / PRESSURE_CONVERSION
-            fit_U = inputs[4].astype(float).ravel() - self._U_offset
-            sigma_U = inputs[5].astype(float).ravel()
-            fit_Cv = inputs[6].astype(float).ravel()
-            sigma_Cv = inputs[7].astype(float).ravel()
+        xx = np.concat((x, x, x[idx]), axis=0)
+        yy = np.concat((y, y, y[idx]), axis=0)
+        data = np.concat((dfdx, dfdy, ddfdyy), axis=0)
+        data_err = np.concat((dfdx_err, dfdy_err, ddfdyy_err), axis=0)
+        data_tags = np.asarray(
+            ((['dfdx',] * dfdx.shape[0]) + (['dfdy',] * dfdy.shape[0])
+                + (['ddfdyy',] * ddfdyy.shape[0])), dtype='<U6',
+        )
 
-            x = CRITICAL_VOLUME / fit_V
-            y = CRITICAL_TEMPERATURE / fit_T
-            dfdx = fit_p * fit_V / (K_B * fit_T * x)
-            dfdx_err = np.abs(sigma_p * fit_V / (K_B * fit_T * x))
-            dfdy = fit_U / (K_B * CRITICAL_TEMPERATURE)
-            dfdy_err = np.abs(sigma_U / (K_B * CRITICAL_TEMPERATURE))
-            ddfdyy = -fit_Cv / (K_B * (y**2))
-            ddfdyy_err = np.abs(sigma_Cv / (K_B * (y**2)))
-            
-            xx = np.concat((x, x, x), axis=0)
-            yy = np.concat((y, y, y), axis=0)
-            data = np.concat((dfdx, dfdy, ddfdyy), axis=0)
-            data_err = np.concat((dfdx_err, dfdy_err, ddfdyy_err), axis=0)
-            data_tags = np.asarray(
-                ((['dfdx',] * dfdx.shape[0]) + (['dfdy',] * dfdy.shape[0])
-                 + (['ddfdyy',] * ddfdyy.shape[0])), dtype='<U6',
-            )
-
-        if self._method == 'bspline':
-            xmax = float(np.max(x) + np.min(x))
-            ymax = float(np.max(y) + np.min(y))
-            N_points = x.shape[0]
-            nx = int(round(np.sqrt(N_points * xmax / ymax)))
-            ny = int(round(ymax * nx / xmax))
-            self.f = Additive(
-                [IdealGas, BSpline],
-                [
-                    {'dof': self._dof},
-                    {'extent': (0.0, xmax, 0.0, ymax), 'n': (nx, ny)},
-                ],
-            )
-            self.f.fit(xx, yy, data, data_err, data_tags)
-        elif self._method == 'poly':
-            max_order = int(np.sqrt(2.0 * data.shape[0]) - 1.5)
-            self.f = Additive(
-                [IdealGas, Polynomial],
-                [{'dof': self._dof}, {'order': max_order}],
-            )
-            self.f.fit(xx, yy, data, data_err, data_tags)
-        else:
-            raise RuntimeError('Internal `_method` field somehow invalid: '
-                            + self._method)
+        N_points = x.shape[0]
+        N_knots = min(round(np.sqrt(N_points)), 10)
+        self.f = IdealGasPlusBSpline(dof=self._dof, n=N_knots,
+                                     extent=(0.0, 2.0, 0.0, 2.0))
+        self.f.fit(xx, yy, data, data_err, data_tags)
         return None
 
 
@@ -244,21 +211,11 @@ class _FES:
         if params['method'] == 'bspline':
             self._dof = float(params['dof'])
             if 'f' in params:
-                self.f = Additive([IdealGas, BSpline], [dict(), dict()])
+                self.f = IdealGasPlusBSpline()
                 self.f.load_params(params['f'])
             else:
                 self.f = None
             self._method = 'bspline'
-            self._fixed_preset = False
-        elif params['method'] == 'poly':
-            self._dof = float(params['dof'])
-            if 'f' in params:
-                self.f = Additive([IdealGas, Polynomial],
-                                  [dict(), {'order': 2}])
-                self.f.load_params(params['f'])
-            else:
-                self.f = None
-            self._method = 'poly'
             self._fixed_preset = False
         elif params['method'] == 'iapws':
             self.f = IAPWS95()
@@ -270,6 +227,10 @@ class _FES:
             self._fixed_preset = True
         else:
             raise RuntimeError(f'method "{params['method']}" not recognized!')
+        self._V_ref = (CRITICAL_VOLUME if 'V_ref' not in params
+                       else float(params['V_ref']))
+        self._T_ref = (CRITICAL_TEMPERATURE if 'T_ref' not in params
+                       else float(params['T_ref']))
         self._U_offset = (0.0 if 'U_offset' not in params
                           else float(params['U_offset']))
 
@@ -280,6 +241,8 @@ class _FES:
         if not self._fixed_preset:
             params['dof'] = float(self._dof)
             if self.f is not None:
+                params['V_ref'] = float(self._V_ref)
+                params['T_ref'] = float(self._T_ref)
                 params['U_offset'] = float(self._U_offset)
                 params['f'] = self.f.get_params()
         return params
@@ -288,7 +251,7 @@ class _FES:
     def _check_valid_and_convert_to_xy(self, V, T):
         if self.f is None:
             raise RuntimeError('method must be specified at construction!')
-        return CRITICAL_VOLUME / V, CRITICAL_TEMPERATURE / T
+        return self._V_ref / V, self._T_ref / T
 
 
     def free_energy(
@@ -450,9 +413,9 @@ class _FES:
         V : float
             Volume, in Å³. Will default to NaN if no root is found.
         """
-        target = p * CRITICAL_VOLUME / (PRESSURE_CONVERSION * K_B * T)
-        x = 1. if init_guess is None else (CRITICAL_VOLUME / init_guess)
-        y = CRITICAL_TEMPERATURE / T
+        target = p * self._V_ref / (PRESSURE_CONVERSION * K_B * T)
+        x = 1. if init_guess is None else (self._V_ref / init_guess)
+        y = self._T_ref / T
         max_value = 1. / abs(tol)
         for _ in range(max_iter):
             numer = (x**2) * self.f.dfdx(x, y)
@@ -467,5 +430,5 @@ class _FES:
             if x > max_value:
                 return 0.0
             if abs(delta) < tol:
-                return CRITICAL_VOLUME / x
+                return self._V_ref / x
         return np.nan

@@ -38,13 +38,6 @@ class FreeEnergySurface:
             self._dof = float(dof)
             self._extrapolate = bool(extrapolate)
             self._fixed_preset = False
-        elif method == 'poly':
-            self._main_model = _FES('poly', dof=dof)
-            self._N_models = int(N_models)
-            self._method = 'poly'
-            self._dof = float(dof)
-            self._extrapolate = bool(extrapolate)
-            self._fixed_preset = False
         elif method == 'iapws':
             self._main_model = _FES('iapws')
             self._N_models = 0
@@ -106,21 +99,28 @@ class FreeEnergySurface:
             self._extrapolate = True
             self._convex_hull_eqns = None
 
-        self._main_model.fit_to_data(V, T, p, p_err, U, U_err, Cv, Cv_err,
-                                     U_offset)
+        if Cv is None:
+            self._main_model.fit_to_data(V, T, p, p_err, U, U_err, np.nan,
+                                         np.nan, U_offset)
+        else:
+            self._main_model.fit_to_data(V, T, p, p_err, U, U_err, Cv, Cv_err,
+                                         U_offset)
 
         if self._N_models > 0:
             rng = np.random.default_rng()
             self._committee = list()
             for _ in range(self._N_models):
-                new_p = p + rng.normal(scale=p_err)
-                new_U = U + rng.normal(scale=U_err)
+                new_p = (self._main_model.pressure(V_cast, T_cast)
+                         + rng.normal(scale=p_err))
+                new_U = (self._main_model.internal_energy(V_cast, T_cast)
+                         + rng.normal(scale=U_err))
                 model = _FES(self._method, self._dof)
                 if Cv is None:
                     model.fit_to_data(V, T, new_p, p_err, new_U, U_err,
-                                      None, None, U_offset)
+                                      np.nan, np.nan, U_offset)
                 else:
-                    new_Cv = Cv + rng.normal(scale=Cv_err)
+                    new_Cv = (self._main_model.heat_capacity(V_cast, T_cast)
+                              + rng.normal(scale=Cv_err))
                     model.fit_to_data(V, T, new_p, p_err, new_U, U_err,
                                       new_Cv, Cv_err, U_offset)
                 self._committee.append(model)
@@ -134,7 +134,7 @@ class FreeEnergySurface:
         for mandatory_field in ('method', 'extrapolate'):
             if mandatory_field not in params:
                 raise IOError(f'"{mandatory_field}" field missing from file!')
-        if params['method'] in ('bspline', 'poly'):
+        if params['method'] == 'bspline':
             self._method = str(params['method'])
             self._N_models = int(params['N_models'])
             self._dof = float(params['dof'])

@@ -122,14 +122,14 @@ def main() -> None:
 
     fig, ax = plt.subplots(1, 2)
     fig.set_size_inches(12.0, 4.0)
-    mask = np.logical_not(np.isnan(mean_surface))
+    mask = np.isfinite(mean_surface)
     art = ax[0].tricontourf(T_plot[mask], rho_plot[mask], mean_surface[mask],
                             levels=levels, cmap='viridis', vmin=vmin,
                             vmax=vmax)
     ax[0].scatter(T_obs, rho_obs, c=U_obs, cmap='viridis', vmin=vmin,
                   vmax=vmax, ec='white')
     fig.colorbar(art, ax=ax[0], label=r'$E(T,\rho)\;[\text{eV}]$')
-    mask = np.logical_not(np.isnan(unc_surface))
+    mask = np.isfinite(unc_surface)
     art = ax[1].tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
                             levels=errlevels, cmap='Reds', vmin=0.0,
                             vmax=errmax)
@@ -170,13 +170,13 @@ def main() -> None:
 
     fig, ax = plt.subplots(1, 2)
     fig.set_size_inches(12.0, 4.0)
-    mask = np.logical_not(np.isnan(mean_surface))
+    mask = np.isfinite(mean_surface)
     art = ax[0].tricontourf(T_plot[mask], rho_plot[mask], mean_surface[mask],
                             levels=levels, cmap='berlin', norm=norm)
     ax[0].scatter(T_obs, rho_obs, c=p_obs, cmap='berlin', norm=norm,
                   ec='lime')
     fig.colorbar(art, ax=ax[0], label=r'$p(T,\rho)\;[\text{bar}]$')
-    mask = np.logical_not(np.isnan(unc_surface))
+    mask = np.isfinite(unc_surface)
     art = ax[1].tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
                             levels=errlevels, cmap='Reds', vmin=0.0,
                             vmax=errmax)
@@ -219,7 +219,7 @@ def main() -> None:
 
         fig, ax = plt.subplots(1, 2)
         fig.set_size_inches(12.0, 4.0)
-        mask = np.logical_not(np.isnan(mean_surface))
+        mask = np.isfinite(mean_surface)
         art = ax[0].tricontourf(T_plot[mask], rho_plot[mask],
                                 mean_surface[mask], levels=levels,
                                 cmap='viridis', vmin=vmin, vmax=vmax)
@@ -227,7 +227,7 @@ def main() -> None:
                       vmax=vmax, ec='white')
         fig.colorbar(art, ax=ax[0],
                      label=r'$C_V(T,\rho)\;[\text{eV}/\text{K}]$')
-        mask = np.logical_not(np.isnan(unc_surface))
+        mask = np.isfinite(unc_surface)
         art = ax[1].tricontourf(T_plot[mask], rho_plot[mask],
                                 unc_surface[mask], levels=errlevels,
                                 cmap='Reds', vmin=0.0, vmax=errmax)

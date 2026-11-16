@@ -19,17 +19,12 @@ class FreeEnergySurface:
     F(V, T)  =  kT f(x, y) ,
     ```
 
-    where `V𞁞 = 92.9039635 Å³`  and `T𞁞 = 647.096 K` represent the volume and
-    temperature respectively of water's liquid-vapour critical point. This
-    choice of nondimensionalizing `V` and `T` relative to the critical point
-    is meaningful for the preset free energy surfaces (e.g. IAWPS-95 and
-    GERG-2008) as they fix divergences at `x = y = 1`, but completely
-    arbitrary for fitted free energy surfaces as it simply represents a
-    rescaling of the variables.
+    where `V₀`  and `T₀` are arbitrary reference volumes and temperatures
+    respectively.
 
     Parameters
     ----------
-    model : {'bspline', 'poly', 'iapws', 'gerg'}, optional
+    model : {'bspline', 'iapws', 'gerg'}, optional
         Model for the equation of state `f(x, y)`. Some of these choices
         correspond to flexible models, which are designed to be fitted onto
         user-supplied thermodynamic data, whereas some correspond to fixed
@@ -43,13 +38,6 @@ class FreeEnergySurface:
           fitted using 4th-order B-splines; the resulting model is purely
           interpolatory, and reverts back to the ideal gas when far outside
           the rectangular domain bounded by the provided data.
-        - 'poly': A flexible model based on a polynomial series. Specifically,
-          the free energy function `f(x, y)` is expressed as an ideal gas part
-          plus a residual part, where the residual part is fitted using the
-          highest-order polynomial possible. Although the resulting model
-          nominally has some extrapolatory power, in practice the Runge
-          phenomenon results in rapid divergences especially when far away
-          from the provided data's center-of-mass.
         - 'iapws': The IAPWS-95 equation of state, a fixed preset.
         - 'gerg': The GERG-2008 equation of state, a fixed preset.
 

@@ -146,6 +146,16 @@ def main() -> None:
     Cv_obs_err = data[7]
 
     rho_obs = WATER_MASS_DENSITY_CONVERSION / V_obs
+    valid_obs = np.logical_and(
+        np.logical_and(
+            rho_obs >= _DENSITY_RANGE[0],
+            rho_obs <= _DENSITY_RANGE[1],
+        ),
+        np.logical_and(
+            T_obs >= _TEMP_RANGE[0],
+            T_obs <= _TEMP_RANGE[1],
+        ),
+    )
     fes = FreeEnergySurface()
     fes.fit_to_data(*data)
     fes.save_to_file(output_dir / 'EoS.yaml')
@@ -166,26 +176,28 @@ def main() -> None:
 
     mean_surface = fes.internal_energy(V_plot, T_plot, lazy=False)
     unc_surface = fes.internal_energy_unc(V_plot, T_plot)
-    vmin = min(np.nanmin(mean_surface), np.min(U_obs))
-    vmax = max(np.nanmax(mean_surface), np.max(U_obs))
+    vmin = min(np.nanmin(mean_surface), np.min(U_obs[valid_obs]))
+    vmax = max(np.nanmax(mean_surface), np.max(U_obs[valid_obs]))
     levels = np.linspace(vmin, vmax, _N_PLOT_POINTS)
-    errmax = max(np.nanmax(unc_surface), np.max(U_obs_err))
+    errmax = max(np.nanmax(unc_surface), np.max(U_obs_err[valid_obs]))
     errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
-    deviations = U_obs - fes.internal_energy(V_obs, T_obs, lazy=False)
+    obs_pred = fes.internal_energy(V_obs[valid_obs], T_obs[valid_obs],
+                                   lazy=False)
+    deviations = U_obs[valid_obs] - obs_pred
     mae = SI_prefix(np.mean(np.abs(deviations)), 'eV')
     rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'eV')
 
     fig, ax = plt.subplots(1, 2)
     fig.set_size_inches(12.0, 4.0)
-    mask = np.logical_not(np.isnan(mean_surface))
+    mask = np.isfinite(mean_surface)
     art = ax[0].tricontourf(T_plot[mask], rho_plot[mask], mean_surface[mask],
                             levels=levels, cmap='viridis', vmin=vmin,
                             vmax=vmax)
     ax[0].scatter(T_obs, rho_obs, c=U_obs, cmap='viridis', vmin=vmin,
                   vmax=vmax, ec='white')
     fig.colorbar(art, ax=ax[0], label=r'$E(T,\rho)\;[\text{eV}]$')
-    mask = np.logical_not(np.isnan(unc_surface))
+    mask = np.isfinite(unc_surface)
     art = ax[1].tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
                             levels=errlevels, cmap='Reds', vmin=0.0,
                             vmax=errmax)
@@ -213,25 +225,27 @@ def main() -> None:
 
     mean_surface = fes.pressure(V_plot, T_plot, lazy=False)
     unc_surface = fes.pressure_unc(V_plot, T_plot)
-    vmax = max(np.nanmax(np.abs(mean_surface)), np.max(np.abs(p_obs)))
+    vmax = max(np.nanmax(np.abs(mean_surface)),
+               np.max(np.abs(p_obs[valid_obs])))
     norm = AsinhNorm(1.0, -vmax, vmax)
     levels = np.asarray(norm.inverse(np.linspace(0.0, 1.0, _N_PLOT_POINTS)))
-    errmax = max(np.nanmax(unc_surface), np.max(p_obs_err))
+    errmax = max(np.nanmax(unc_surface), np.max(p_obs_err[valid_obs]))
     errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
-    deviations = p_obs - fes.pressure(V_obs, T_obs, lazy=False)
+    obs_pred = fes.pressure(V_obs[valid_obs], T_obs[valid_obs], lazy=False)
+    deviations = p_obs[valid_obs] - obs_pred
     mae = SI_prefix(np.mean(np.abs(deviations)), 'bar')
     rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'bar')
 
     fig, ax = plt.subplots(1, 2)
     fig.set_size_inches(12.0, 4.0)
-    mask = np.logical_not(np.isnan(mean_surface))
+    mask = np.isfinite(mean_surface)
     art = ax[0].tricontourf(T_plot[mask], rho_plot[mask], mean_surface[mask],
                             levels=levels, cmap='berlin', norm=norm)
     ax[0].scatter(T_obs, rho_obs, c=p_obs, cmap='berlin', norm=norm,
                   ec='lime')
     fig.colorbar(art, ax=ax[0], label=r'$p(T,\rho)\;[\text{bar}]$')
-    mask = np.logical_not(np.isnan(unc_surface))
+    mask = np.isfinite(unc_surface)
     art = ax[1].tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
                             levels=errlevels, cmap='Reds', vmin=0.0,
                             vmax=errmax)
@@ -261,19 +275,22 @@ def main() -> None:
 
         mean_surface = fes.heat_capacity(V_plot, T_plot, lazy=False)
         unc_surface = fes.heat_capacity_unc(V_plot, T_plot)
-        vmin = max(min(np.nanmin(mean_surface), np.min(Cv_obs)), 0.0)
-        vmax = max(np.nanmax(mean_surface), np.max(Cv_obs))
+        vmin = max(min(np.nanmin(mean_surface), np.min(Cv_obs[valid_obs])),
+                   0.0)
+        vmax = max(np.nanmax(mean_surface), np.max(Cv_obs[valid_obs]))
         levels = np.linspace(vmin, vmax, _N_PLOT_POINTS)
-        errmax = max(np.nanmax(unc_surface), np.max(Cv_obs_err))
+        errmax = max(np.nanmax(unc_surface), np.max(Cv_obs_err[valid_obs]))
         errlevels = np.linspace(0.0, errmax, _N_PLOT_POINTS)
 
-        deviations = Cv_obs - fes.heat_capacity(V_obs, T_obs, lazy=False)
+        obs_pred = fes.heat_capacity(V_obs[valid_obs], T_obs[valid_obs],
+                                     lazy=False)
+        deviations = Cv_obs[valid_obs] - obs_pred
         mae = SI_prefix(np.mean(np.abs(deviations)), 'eV/K')
         rmse = SI_prefix(np.sqrt(np.mean(deviations**2)), 'eV/K')
 
         fig, ax = plt.subplots(1, 2)
         fig.set_size_inches(12.0, 4.0)
-        mask = np.logical_not(np.isnan(mean_surface))
+        mask = np.isfinite(mean_surface)
         art = ax[0].tricontourf(T_plot[mask], rho_plot[mask],
                                 mean_surface[mask], levels=levels,
                                 cmap='viridis', vmin=vmin, vmax=vmax)
@@ -281,7 +298,7 @@ def main() -> None:
                       vmax=vmax, ec='white')
         fig.colorbar(art, ax=ax[0],
                      label=r'$C_V(T,\rho)\;[\text{eV}/\text{K}]$')
-        mask = np.logical_not(np.isnan(unc_surface))
+        mask = np.isfinite(unc_surface)
         art = ax[1].tricontourf(T_plot[mask], rho_plot[mask],
                                 unc_surface[mask], levels=errlevels,
                                 cmap='Reds', vmin=0.0, vmax=errmax)
@@ -317,7 +334,7 @@ def main() -> None:
 
     fig, ax = plt.subplots()
     fig.set_size_inches(6.0, 4.0)
-    mask = np.logical_not(np.isnan(unc_surface))
+    mask = np.isfinite(unc_surface)
     art = ax.tricontourf(T_plot[mask], rho_plot[mask], unc_surface[mask],
                          levels=levels, cmap='Reds', vmin=0.0, vmax=vmax)
     fig.colorbar(art, ax=ax)

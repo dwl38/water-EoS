@@ -69,6 +69,13 @@ We are also planning the functionality to fit "delta" Equations of State (i.e. p
 ## Changelog
 
 ```
+v0.3.0: FreeEnergySurface now uses a variable reference volume/temperature,
+which is set from the centre-of-mass of the provided fitting data, rather than
+being fixed on water's critical point; furthermore, partitioning of the input
+space now has an upper limit of 10 intervals in either axis. The ensemble of
+models for uncertainty is also now based on parametric bootstrapping, rather
+than smooth bootstrapping.
+
 v0.2.2a0: Changes to `stats` module:
     - Definition of statistical inefficiency switched from truncation at first
     zero (as recommended by Chodera et al. 2007), to truncation at first

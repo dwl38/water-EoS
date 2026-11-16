@@ -99,7 +99,7 @@ def main() -> None:
                      / (K_B * T_range))
         unc_surface = np.sqrt((xdfdx_unc**2) + (ydfdy_unc**2))
 
-        mask = np.logical_not(np.isnan(unc_surface))
+        mask = np.isfinite(unc_surface)
 
         idx = np.argmax(unc_surface[mask])
         maximal_unc_V, maximal_unc_T = V_range[mask][idx], T_range[mask][idx]
