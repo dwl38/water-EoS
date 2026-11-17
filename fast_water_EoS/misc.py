@@ -47,7 +47,7 @@ def SI_prefix(value: float, base_unit: str) -> str:
                   6: 'E',  7: 'Z',   8: 'Y',  9: 'R', 10: 'Q', -1: 'm',
                  -2: 'μ', -3: 'n',  -4: 'p', -5: 'f', -6: 'a', -7: 'z',
                  -8: 'y', -9: 'r', -10: 'q'}
-    exponent = int(math.floor(math.log10(value)))
+    exponent = int(math.floor(math.log10(abs(value))))
     super_exponent = exponent // 3
     sub_exponent = exponent % 3
     prefactor = value / (10**(3 * super_exponent))
