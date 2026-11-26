@@ -4,10 +4,9 @@ inverse reduced temperature.
 """
 
 import numpy as np
-from . import ParameterizableFunc, FITTING_TAGS
 
 
-class IAPWS95(ParameterizableFunc):
+class IAPWS95:
     """Represents the dimensionless free energy function `f(x, y)` from the
     IAPWS-95 equation of state for liquid water, in terms of the reduced
     density `x` and inverse reduced temperature `y`. The critical point is at
@@ -302,40 +301,4 @@ class IAPWS95(ParameterizableFunc):
                                + (2.0 * ddeltabdy * dpsidy)
                                + ((delta**b) * ddpsidyy))
         return result
-    
-
-    def get_params(self):
-        return dict()
-    
-
-    def load_params(self, p):
-        pass
-
-
-    def _get_fitting_matrix(self, x, y, data_tags):
-        return None
-
-
-    def _get_zero_offset(self, x, y, data_tags):
-        results = np.zeros_like(x)
-        for tag in FITTING_TAGS:
-            idx = (data_tags == tag)
-            if tag == 'f':
-                results[idx] += self.f(x[idx], y[idx])
-            elif tag == 'dfdx':
-                results[idx] += self.dfdx(x[idx], y[idx])
-            elif tag == 'dfdy':
-                results[idx] += self.dfdy(x[idx], y[idx])
-            elif tag == 'ddfdxx':
-                results[idx] += self.ddfdxx(x[idx], y[idx])
-            elif tag == 'ddfdxy':
-                results[idx] += self.ddfdxy(x[idx], y[idx])
-            elif tag == 'ddfdyy':
-                results[idx] += self.ddfdyy(x[idx], y[idx])
-        return results
-
-
-    def _set_fitted_params(self, params):
-        pass
-        
 

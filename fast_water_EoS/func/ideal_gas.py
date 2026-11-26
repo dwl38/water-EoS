@@ -4,10 +4,10 @@ inverse reduced temperature.
 """
 
 import numpy as np
-from . import ParameterizableFunc, FITTING_TAGS
+from ..misc import broadcast_and_flatten
 
 
-class IdealGas(ParameterizableFunc):
+class IdealGas:
     """Represents the dimensionless free energy function `f(x, y)` for an
     ideal gas.
     
@@ -23,67 +23,39 @@ class IdealGas(ParameterizableFunc):
 
 
     def f(self, x, y):
-        new_x, new_y = np.broadcast_arrays(x, y)
-        return np.log(new_x) + (self._dof * np.log(new_y) / 2.0)
+        x, y = broadcast_and_flatten(x, y)
+        return np.log(x) + (self._dof * np.log(y) / 2.0)
 
 
     def dfdx(self, x, y):
-        new_x, _ = np.broadcast_arrays(x, y)
-        return 1.0 / new_x
+        x, _ = broadcast_and_flatten(x, y)
+        return 1.0 / x
 
 
     def dfdy(self, x, y):
-        _, new_y = np.broadcast_arrays(x, y)
-        return self._dof / (2.0 * new_y)
+        _, y = broadcast_and_flatten(x, y)
+        return self._dof / (2.0 * y)
 
 
     def ddfdxx(self, x, y):
-        new_x, _ = np.broadcast_arrays(x, y)
-        return -1.0 / (new_x**2)
+        x, _ = broadcast_and_flatten(x, y)
+        return -1.0 / (x**2)
     
 
     def ddfdxy(self, x, y):
-        _, _, zeros = np.broadcast_arrays(x, y, 0.0)
+        _, _, zeros = broadcast_and_flatten(x, y, 0.0)
         return zeros
     
 
     def ddfdyy(self, x, y):
-        _, new_y = np.broadcast_arrays(x, y)
-        return -self._dof / (2.0 * (new_y**2))
+        _, y = broadcast_and_flatten(x, y)
+        return -self._dof / (2.0 * (y**2))
     
 
-    def get_params(self):
-        return {'dof': float(self._dof)}
+    def get_params(self, prefix=''):
+        return {prefix + 'dof': float(self._dof)}
     
 
-    def load_params(self, p):
-        self._dof = float(p['dof'])
-
-
-    def _get_fitting_matrix(self, x, y, data_tags):
-        return None
-
-
-    def _get_zero_offset(self, x, y, data_tags):
-        results = np.zeros_like(x)
-        for tag in FITTING_TAGS:
-            idx = (data_tags == tag)
-            if tag == 'f':
-                results[idx] += self.f(x[idx], y[idx])
-            elif tag == 'dfdx':
-                results[idx] += self.dfdx(x[idx], y[idx])
-            elif tag == 'dfdy':
-                results[idx] += self.dfdy(x[idx], y[idx])
-            elif tag == 'ddfdxx':
-                results[idx] += self.ddfdxx(x[idx], y[idx])
-            elif tag == 'ddfdxy':
-                results[idx] += self.ddfdxy(x[idx], y[idx])
-            elif tag == 'ddfdyy':
-                results[idx] += self.ddfdyy(x[idx], y[idx])
-        return results
-
-
-    def _set_fitted_params(self, params):
-        pass
-        
+    def load_params(self, params, prefix=''):
+        self._dof = float(params[prefix + 'dof'])
 
