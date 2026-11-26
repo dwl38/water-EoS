@@ -1,5 +1,5 @@
 import time
-import math
+import numpy as np
 from typing import Any
 
 def elapsed_time(time_start: float, time_end: float = None) -> str:
@@ -47,7 +47,7 @@ def SI_prefix(value: float, base_unit: str) -> str:
                   6: 'E',  7: 'Z',   8: 'Y',  9: 'R', 10: 'Q', -1: 'm',
                  -2: 'μ', -3: 'n',  -4: 'p', -5: 'f', -6: 'a', -7: 'z',
                  -8: 'y', -9: 'r', -10: 'q'}
-    exponent = int(math.floor(math.log10(abs(value))))
+    exponent = int(np.floor(np.log10(abs(value))))
     super_exponent = exponent // 3
     sub_exponent = exponent % 3
     prefactor = value / (10**(3 * super_exponent))
@@ -65,4 +65,17 @@ def castable(x: Any, t: type) -> bool:
         return isinstance(t, type)
     except:
         return False
+
+
+def pos_divide(num: float, x: np.ndarray):
+    """Performs `num / x` for positive `x`, and returns zeros where `x` is
+    zero or negative."""
+    return np.divide(num, x, out=np.zeros_like(x), where=(x>0.0))
+
+
+def broadcast_and_flatten(*args):
+    """Broadcasts all inputs against each other, flattens them into a 1D
+    array, and casts them to float."""
+    inputs = np.broadcast_arrays(*args)
+    return (x.ravel().astype(float) for x in inputs)
     
