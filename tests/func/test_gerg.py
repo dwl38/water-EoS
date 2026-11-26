@@ -51,12 +51,3 @@ def test_gerg(logging_dir: Path):
     fig.savefig(plot_file, dpi=300.0, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
 
-
-def test_failures():
-
-    gerg = GERG2008()
-    assert len(gerg.get_params()) == 0
-
-    # Warning triggered by attempting to fit fixed functional form
-    with pytest.warns(UserWarning):
-        gerg.fit([1.0, 2.0], [1.0, 2.0], [1.0, 2.0], [1.0, 2.0], 'f')

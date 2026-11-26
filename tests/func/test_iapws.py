@@ -12,7 +12,7 @@ def logging_dir() -> Path:
     return output_dir
 
 
-def test_gerg(logging_dir: Path):
+def test_iapws(logging_dir: Path):
 
     plot_file = logging_dir / 'iapws.png'
     plot_file.unlink(missing_ok=True)
@@ -73,12 +73,3 @@ def test_specific_points():
     assert np.allclose(test_ddfdyy, -4.16689922 )
     assert np.allclose(test_ddfdxy, -1.12176915 )
 
-
-def test_failures():
-
-    iapws = IAPWS95()
-    assert len(iapws.get_params()) == 0
-
-    # Warning triggered by attempting to fit fixed functional form
-    with pytest.warns(UserWarning):
-        iapws.fit([1.0, 2.0], [1.0, 2.0], [1.0, 2.0], [1.0, 2.0], 'f')

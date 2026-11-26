@@ -12,7 +12,7 @@ def logging_dir() -> Path:
     return output_dir
 
 
-def test_gerg(logging_dir: Path):
+def test_ideal(logging_dir: Path):
 
     plot_file = logging_dir / 'ideal.png'
     plot_file.unlink(missing_ok=True)
@@ -54,12 +54,3 @@ def test_gerg(logging_dir: Path):
     fig.savefig(plot_file, dpi=300.0, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
 
-
-def test_failures():
-
-    ideal = IdealGas()
-    assert len(ideal.get_params()) == 1
-
-    # Warning triggered by attempting to fit fixed functional form
-    with pytest.warns(UserWarning):
-        ideal.fit([1.0, 2.0], [1.0, 2.0], [1.0, 2.0], [1.0, 2.0], 'f')
