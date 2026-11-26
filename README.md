@@ -69,6 +69,13 @@ We are also planning the functionality to fit "delta" Equations of State (i.e. p
 ## Changelog
 
 ```
+v0.4.0: Major change in backend:
+    - Removed support for "polynomial" fitting
+    - Uncertainty estimate now based on ensemble of fitting functions (derived
+    directly from parameter covariances) rather than ensemble of fitted models
+    - B-splines can now support arbitrary knot spacings, and optionally can
+    enable automatic knot refinement during fitting
+
 v0.3.0: FreeEnergySurface now uses a variable reference volume/temperature,
 which is set from the centre-of-mass of the provided fitting data, rather than
 being fixed on water's critical point; furthermore, partitioning of the input
