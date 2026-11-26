@@ -427,7 +427,7 @@ class BSpline:
                 data_tags[train],
             ) / data_err[train, None])
             b_train = data[train] / data_err[train]
-            best_fit, regularizer, chi_sq_train = solve_regularized_lstsq(
+            best_fit, _, chi_sq_train = solve_regularized_lstsq(
                 A_train, b_train, self._get_penalty_matrix(), target,
             )
             rss_train = (b_train - (A_train @ best_fit))**2
@@ -561,8 +561,13 @@ class BSpline:
         M_mat = A_norm.T @ A_norm
         if Q_norm is not None:
             M_mat += (regularizer**2) * Q_norm
-        M_inv = np.linalg.pinv(M_mat)
-        fit_cov = chi_sq * (M_inv @ (A_norm.T @ A_norm) @ M_inv)
+
+        # Frequentist uncertainty
+        # M_inv = np.linalg.pinv(M_mat)
+        # fit_cov = chi_sq * (M_inv @ (A_norm.T @ A_norm) @ M_inv)
+
+        # Bayesian uncertainty
+        fit_cov = np.linalg.pinv(M_mat)
 
         nx = self._xknots.shape[0] - self._px - 1
         ny = self._yknots.shape[0] - self._py - 1
